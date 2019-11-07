@@ -132,6 +132,6 @@ class BitfinexAPIOrderBookDataSource(OrderBookTrackerDataSource):
 
                 all_markets: pd.DataFrame = pd.DataFrame.from_records(data=prices, index="symbol")
 
-        return all_markets.sort_values("volume", ascending=False)
+                return all_markets.sort_values("volume", ascending=False)
 
     # TODO: make other methods
