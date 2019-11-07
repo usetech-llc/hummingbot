@@ -1,21 +1,20 @@
 #!/usr/bin/env python
 from collections import namedtuple
 
-import aiohttp
 import logging
-import pandas as pd
 from typing import (
-    List,
-    Optional,
     Any,
     Dict,
+    List,
+    Optional,
 )
+
 from hummingbot.core.data_type.order_book_tracker_data_source import OrderBookTrackerDataSource
-from hummingbot.core.utils import async_ttl_cache
 from hummingbot.logger import HummingbotLogger
 
 BITFINEX_REST_URL = "https://api-pub.bitfinex.com/v2"
-# COINBASE_WS_FEED = "wss://ws-feed.pro.coinbase.com"
+BITFINEX_WS_URI = "'wss://api-pub.bitfinex.com/ws/2'"
+
 REQUEST_TTL = 60 * 30
 CACHE_SIZE = 1
 RESPONSE_SUCCESS = 200
@@ -73,7 +72,8 @@ class BitfinexAPIOrderBookDataSource(OrderBookTrackerDataSource):
         prices = []
 
         for price in [v for v in raw_prices.values() if v["quote"] == MAIN_FIAT]:
-            symbol = f"{price['base']}-{price['quote']}"
+            raw_symbol = f"{price['base']}-{price['quote']}"
+            symbol = f"{price['base']}{price['quote']}"
             prices.append(
                 {
                     "symbol": symbol,
@@ -81,57 +81,32 @@ class BitfinexAPIOrderBookDataSource(OrderBookTrackerDataSource):
                 }
             )
             converters[price["base"]] = price["price"]
-            del raw_prices[symbol]
+            del raw_prices[raw_symbol]
 
-        for symbol, item in raw_prices.items():
+        for raw_symbol, item in raw_prices.items():
+            symbol = f"{item['base']}{item['quote']}"
             if item["base"] in converters:
                 prices.append(
                     {
                         "symbol": symbol,
-                        "volume": item["volume"] * item["price"] * converters[item["base"]]
+                        "volume": item["volume"] * (item["price"] / converters[item["base"]])
                     }
                 )
                 if item["quote"] not in converters:
-                    converters[item["quote"]] = converters[item["base"]] * item["price"]
+                    converters[item["quote"]] = item["price"] / converters[item["base"]]
                 continue
 
             if item["quote"] in converters:
                 prices.append(
                     {
                         "symbol": symbol,
-                        "volume": item["volume"] * (item["price"] / converters[item["quote"]])
+                        "volume": item["volume"] * item["price"] * converters[item["quote"]]
                     }
                 )
                 if item["base"] not in converters:
-                    converters[item["base"]] = item["price"] / converters[item["quote"]]
+                    converters[item["base"]] = item["price"] * converters[item["quote"]]
                 continue
 
             prices.append({"symbol": symbol, "volume": NaN})
 
-    @classmethod
-    @async_ttl_cache(ttl=REQUEST_TTL, maxsize=CACHE_SIZE)
-    async def get_active_exchange_markets(cls) -> pd.DataFrame:
-        """
-        *required
-        Returns all currently active BTC trading pairs from Coinbase Pro,
-        sorted by volume in descending order.
-        """
-        async with aiohttp.ClientSession() as client:
-            async with client.get(f"{BITFINEX_REST_URL}/tickers?symbols=ALL") as tickers_response:
-                tickers_response: aiohttp.ClientResponse = tickers_response
-
-                status = tickers_response.status
-                if status != RESPONSE_SUCCESS:
-                    raise IOError(
-                        f"Error fetching active Coinbase Pro markets. HTTP status is {status}.")
-
-                data = await tickers_response.json()
-
-                raw_prices = cls._get_prices(data)
-                prices = cls._convert_volume(raw_prices)
-
-                all_markets: pd.DataFrame = pd.DataFrame.from_records(data=prices, index="symbol")
-
-                return all_markets.sort_values("volume", ascending=False)
-
-    # TODO: make other methods
+        return prices
