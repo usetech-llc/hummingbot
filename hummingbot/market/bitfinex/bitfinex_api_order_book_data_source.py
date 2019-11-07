@@ -1,15 +1,22 @@
 #!/usr/bin/env python
 from collections import namedtuple
 
+import asyncio
+import aiohttp
 import logging
+import pandas as pd
 from typing import (
     Any,
+    AsyncIterable,
     Dict,
     List,
     Optional,
 )
+import websockets
+from websockets.exceptions import ConnectionClosed
 
 from hummingbot.core.data_type.order_book_tracker_data_source import OrderBookTrackerDataSource
+from hummingbot.core.utils import async_ttl_cache
 from hummingbot.logger import HummingbotLogger
 
 BITFINEX_REST_URL = "https://api-pub.bitfinex.com/v2"
@@ -89,7 +96,7 @@ class BitfinexAPIOrderBookDataSource(OrderBookTrackerDataSource):
                 prices.append(
                     {
                         "symbol": symbol,
-                        "volume": item["volume"] * (item["price"] / converters[item["base"]])
+                        "volume": item["volume"] * converters[item["base"]]
                     }
                 )
                 if item["quote"] not in converters:
@@ -110,3 +117,73 @@ class BitfinexAPIOrderBookDataSource(OrderBookTrackerDataSource):
             prices.append({"symbol": symbol, "volume": NaN})
 
         return prices
+
+    @classmethod
+    @async_ttl_cache(ttl=REQUEST_TTL, maxsize=CACHE_SIZE)
+    async def get_active_exchange_markets(cls) -> pd.DataFrame:
+        """
+        *required
+        Returns all currently active BTC trading pairs from Coinbase Pro,
+        sorted by volume in descending order.
+        """
+        async with aiohttp.ClientSession() as client:
+            async with client.get(f"{BITFINEX_REST_URL}/tickers?symbols=ALL") as tickers_response:
+                tickers_response: aiohttp.ClientResponse = tickers_response
+
+                status = tickers_response.status
+                if status != RESPONSE_SUCCESS:
+                    raise IOError(
+                        f"Error fetching active Coinbase Pro markets. HTTP status is {status}.")
+
+                data = await tickers_response.json()
+
+                raw_prices = cls._get_prices(data)
+                prices = cls._convert_volume(raw_prices)
+
+                all_markets: pd.DataFrame = pd.DataFrame.from_records(data=prices, index="symbol")
+
+                return all_markets.sort_values("volume", ascending=False)
+
+    async def get_trading_pairs(self) -> List[str]:
+        """
+        Get a list of active trading pairs
+        (if the market class already specifies a list of trading pairs,
+        returns that list instead of all active trading pairs)
+        :returns: A list of trading pairs defined by the market class,
+        or all active trading pairs from the rest API
+        """
+        if not self._symbols:
+            try:
+                active_markets: pd.DataFrame = await self.get_active_exchange_markets()
+                self._symbols = active_markets.index.tolist()
+            except Exception:
+                msg = "Error getting active exchange information. Check network connection."
+                self._symbols = []
+                self.logger().network(
+                    f"Error getting active exchange information.",
+                    exc_info=True,
+                    app_warning_msg=msg
+                )
+
+        return self._symbols
+
+    async def _inner_messages(
+            self, ws: websockets.WebSocketClientProtocol) -> AsyncIterable[str]:
+        try:
+            while True:
+                try:
+                    msg: str = await asyncio.wait_for(ws.recv(), timeout=self.MESSAGE_TIMEOUT)
+                    yield msg
+                except asyncio.TimeoutError:
+                    try:
+                        pong_waiter = await ws.ping()
+                        await asyncio.wait_for(pong_waiter, timeout=self.PING_TIMEOUT)
+                    except asyncio.TimeoutError:
+                        raise
+        except asyncio.TimeoutError:
+            self.logger().warning("WebSocket ping timed out. Going to reconnect...")
+            return
+        except ConnectionClosed:
+            return
+        finally:
+            await ws.close()
