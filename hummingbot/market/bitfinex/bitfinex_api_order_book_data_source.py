@@ -7,6 +7,8 @@ import pandas as pd
 from typing import (
     List,
     Optional,
+    Any,
+    Dict,
 )
 from hummingbot.core.data_type.order_book_tracker_data_source import OrderBookTrackerDataSource
 from hummingbot.core.utils import async_ttl_cache
@@ -19,18 +21,15 @@ CACHE_SIZE = 1
 RESPONSE_SUCCESS = 200
 MAX_RETRIES = 10
 NaN = float("nan")
-MAIN_FIATS = ["USD", "EUR", "GBP"]
-MAIN_BASES = ["BTC", "ETH"]
 
-s_base, s_quote = slice(3), slice(3, 6)
+MAIN_FIAT = "USD"
 
-MAIN_PAIRS = [base + fiat for base in MAIN_BASES for fiat in MAIN_FIATS]
+s_base, s_quote = slice(1, 4), slice(4, 7)
 
 Ticker = namedtuple(
     "Ticker",
-    "symbol bid bid_size ask ask_size daily_change daily_change_perc last_price volume high low"
+    "symbol bid bid_size ask ask_size daily_change daily_change_percent last_price volume high low"
 )
-Currency = namedtuple("Currency", "price volume")
 
 
 class BitfinexAPIOrderBookDataSource(OrderBookTrackerDataSource):
@@ -49,6 +48,65 @@ class BitfinexAPIOrderBookDataSource(OrderBookTrackerDataSource):
     def __init__(self, symbols: Optional[List[str]] = None):
         super().__init__()
         self._symbols: Optional[List[str]] = symbols
+
+    @staticmethod
+    def _get_prices(data) -> Dict[str, Any]:
+        pairs = [
+            Ticker(*item)
+            for item in data if item[0].startswith("t") and item[0].isalpha()
+        ]
+
+        return {
+            f"{item.symbol[s_base]}-{item.symbol[s_quote]}": {
+                "symbol": f"{item.symbol[s_base]}-{item.symbol[s_quote]}",
+                "base": item.symbol[s_base],
+                "quote": item.symbol[s_quote],
+                "volume": item.volume,
+                "price": item.last_price,
+            }
+            for item in pairs
+        }
+
+    @staticmethod
+    def _convert_volume(raw_prices: Dict[str, Any]) -> List[Dict[str, Any]]:
+        converters = {}
+        prices = []
+
+        for price in [v for v in raw_prices.values() if v["quote"] == MAIN_FIAT]:
+            symbol = f"{price['base']}-{price['quote']}"
+            prices.append(
+                {
+                    "symbol": symbol,
+                    "volume": price["volume"] * price["price"]
+                }
+            )
+            converters[price["base"]] = price["price"]
+            del raw_prices[symbol]
+
+        for symbol, item in raw_prices.items():
+            if item["base"] in converters:
+                prices.append(
+                    {
+                        "symbol": symbol,
+                        "volume": item["volume"] * item["price"] * converters[item["base"]]
+                    }
+                )
+                if item["quote"] not in converters:
+                    converters[item["quote"]] = converters[item["base"]] * item["price"]
+                continue
+
+            if item["quote"] in converters:
+                prices.append(
+                    {
+                        "symbol": symbol,
+                        "volume": item["volume"] * (item["price"] / converters[item["quote"]])
+                    }
+                )
+                if item["base"] not in converters:
+                    converters[item["base"]] = item["price"] / converters[item["quote"]]
+                continue
+
+            prices.append({"symbol": symbol, "volume": NaN})
 
     @classmethod
     @async_ttl_cache(ttl=REQUEST_TTL, maxsize=CACHE_SIZE)
@@ -69,26 +127,11 @@ class BitfinexAPIOrderBookDataSource(OrderBookTrackerDataSource):
 
                 data = await tickers_response.json()
 
-                pairs = [
-                    Ticker(*item)
-                    for item in data if item[0].startswith("t") and item[0].isalpha()
-                ]
+                raw_prices = cls._get_prices(data)
+                prices = cls._convert_volume(raw_prices)
 
-                main_prices = {
-                    item.symbol[1:]: Currency(item.last_price, item.volume)
-                    for item in pairs if item.symbol[1:] in MAIN_PAIRS
-                }
+                all_markets: pd.DataFrame = pd.DataFrame.from_records(data=prices, index="symbol")
 
-                currencies = {}
-
-                for item in pairs:
-                    if item.symbol[1:] in main_prices:
-                        base = item.symbol[1:][s_base]
-                        quote = item.symbol[1:][s_quote]
-                        volume = item.volume
-                        price = item.last_price
-                    # TODO: elif
-
-                    currencies[f"{base}-{quote}"] = volume * price
+        return all_markets.sort_values("volume", ascending=False)
 
     # TODO: make other methods
