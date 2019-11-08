@@ -3,6 +3,7 @@ from collections import namedtuple
 
 import asyncio
 import aiohttp
+import json
 import logging
 import pandas as pd
 from typing import (
@@ -20,7 +21,7 @@ from hummingbot.core.utils import async_ttl_cache
 from hummingbot.logger import HummingbotLogger
 
 BITFINEX_REST_URL = "https://api-pub.bitfinex.com/v2"
-BITFINEX_WS_URI = "'wss://api-pub.bitfinex.com/ws/2'"
+BITFINEX_WS_URI = "wss://api-pub.bitfinex.com/ws/2"
 
 REQUEST_TTL = 60 * 30
 CACHE_SIZE = 1
@@ -36,6 +37,7 @@ Ticker = namedtuple(
     "Ticker",
     "symbol bid bid_size ask ask_size daily_change daily_change_percent last_price volume high low"
 )
+BookStructure = namedtuple("BookStructure", "price count amount")
 
 
 class BitfinexAPIOrderBookDataSource(OrderBookTrackerDataSource):
@@ -167,23 +169,86 @@ class BitfinexAPIOrderBookDataSource(OrderBookTrackerDataSource):
 
         return self._symbols
 
-    async def _inner_messages(
-            self, ws: websockets.WebSocketClientProtocol) -> AsyncIterable[str]:
+    @staticmethod
+    async def _make_request(ws: websockets.WebSocketClientProtocol, request: dict) -> None:
+        await ws.send(json.dumps(request))
+
+    async def _get_response(self, ws: websockets.WebSocketClientProtocol) -> AsyncIterable[str]:
         try:
-            while True:
-                try:
-                    msg: str = await asyncio.wait_for(ws.recv(), timeout=self.MESSAGE_TIMEOUT)
-                    yield msg
-                except asyncio.TimeoutError:
-                    try:
-                        pong_waiter = await ws.ping()
-                        await asyncio.wait_for(pong_waiter, timeout=self.PING_TIMEOUT)
-                    except asyncio.TimeoutError:
-                        raise
+            return await asyncio.wait_for(ws.recv(), timeout=self.MESSAGE_TIMEOUT)
         except asyncio.TimeoutError:
-            self.logger().warning("WebSocket ping timed out. Going to reconnect...")
-            return
+            self.logger().warning("WebSocket timed out. Going to reconnect...")
         except ConnectionClosed:
-            return
-        finally:
-            await ws.close()
+            self.logger().warning("Connection closed")
+
+    async def _yield_response(self, ws: websockets.WebSocketClientProtocol) -> AsyncIterable[str]:
+        while True:
+            yield await self._get_response(ws)
+
+    @staticmethod
+    def _get_snapshot(raw_snapshot: str) -> List[BookStructure]:
+        ch_id, content = json.loads(raw_snapshot)
+        return [BookStructure(*i) for i in content]
+
+    @staticmethod
+    def _get_diff(raw_diff: str) -> BookStructure:
+        _, content = json.loads(raw_diff)
+        return BookStructure(*content)
+
+    def _apply_snapshot(self, raw_snapshot: str) -> None:
+        _: List[BookStructure] = self._get_snapshot(raw_snapshot)
+
+        # TODO: continue
+        # snapshot: Dict[str, any] = await self.get_snapshot(client, trading_pair)
+        # snapshot_timestamp: float = time.time()
+        # snapshot_msg: OrderBookMessage = CoinbaseProOrderBook.snapshot_message_from_exchange(
+        #     snapshot,
+        #     snapshot_timestamp,
+        #     metadata={"symbol": trading_pair}
+        # )
+        # order_book: OrderBook = self.order_book_create_function()
+        # active_order_tracker: CoinbaseProActiveOrderTracker = CoinbaseProActiveOrderTracker()
+        # bids, asks = active_order_tracker.convert_snapshot_message_to_order_book_row(snapshot_msg)
+        # order_book.apply_snapshot(bids, asks, snapshot_msg.update_id)
+
+    def _apply_diff(self, raw_diff) -> None:
+        _: BookStructure = self._get_diff(raw_diff)
+
+        # TODO: continue
+
+    async def _listen_order_book_for_pair(self, pair: str):
+        while True:
+            ws: websockets.WebSocketClientProtocol = None
+            try:
+                async with websockets.connect(BITFINEX_WS_URI) as socket:
+                    ws = socket
+                    subscribe_request: Dict[str, Any] = {
+                        "event": "subscribe",
+                        "channel": "book",
+                        "symbol": f"t{pair}",
+                    }
+                    await self._make_request(ws, subscribe_request)
+
+                    raw_response = await self._get_response(ws)
+                    self.logger().info(raw_response)
+
+                    subscribe_info = await self._get_response(ws)
+                    self.logger().info(subscribe_info)
+
+                    raw_snapshot: str = await self._get_response(ws)
+                    self._apply_snapshot(raw_snapshot)
+
+                    async for diff in self._yield_response(ws):
+                        self._apply_diff(diff)
+            except asyncio.CancelledError:
+                raise
+            except Exception as err:
+                self.logger().error(err)
+                self.logger().error(
+                    "Unexpected error with WebSocket connection. "
+                    f"Retrying after {self.MESSAGE_TIMEOUT} seconds...",
+                    exc_info=True
+                )
+                await asyncio.sleep(self.MESSAGE_TIMEOUT)
+            finally:
+                await ws.close()
