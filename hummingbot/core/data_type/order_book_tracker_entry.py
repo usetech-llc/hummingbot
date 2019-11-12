@@ -8,6 +8,7 @@ from hummingbot.market.idex.idex_active_order_tracker import IDEXActiveOrderTrac
 from hummingbot.market.radar_relay.radar_relay_active_order_tracker import RadarRelayActiveOrderTracker
 from hummingbot.market.bamboo_relay.bamboo_relay_active_order_tracker import BambooRelayActiveOrderTracker
 from hummingbot.market.dolomite.dolomite_active_order_tracker import DolomiteActiveOrderTracker
+from hummingbot.market.bitfinex.bitfinex_active_order_tracker import BitfinexActiveOrderTracker
 
 
 class OrderBookTrackerEntry:
@@ -156,4 +157,24 @@ class BittrexOrderBookTrackerEntry(OrderBookTrackerEntry):
 
     @property
     def active_order_tracker(self) -> BittrexActiveOrderTracker:
+        return self._active_order_tracker
+
+
+class BitfinexOrderBookTrackerEntry(OrderBookTrackerEntry):
+    def __init__(self,
+                 symbol: str,
+                 timestamp: float,
+                 order_book: OrderBook,
+                 active_order_tracker: BitfinexActiveOrderTracker):
+        self._active_order_tracker = active_order_tracker
+        super(BitfinexOrderBookTrackerEntry, self).__init__(symbol, timestamp, order_book)
+
+    def __repr__(self) -> str:
+        return (
+            f"BitfinexOrderBookTrackerEntry(symbol='{self._symbol}', timestamp='{self._timestamp}', "
+            f"order_book='{self._order_book}')"
+        )
+
+    @property
+    def active_order_tracker(self) -> BitfinexActiveOrderTracker:
         return self._active_order_tracker
