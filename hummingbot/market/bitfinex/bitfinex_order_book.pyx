@@ -11,6 +11,7 @@ from hummingbot.core.data_type.order_book_message import (
     OrderBookMessage,
     OrderBookMessageType,
 )
+from hummingbot.core.event.events import TradeType
 from hummingbot.logger import HummingbotLogger
 
 
@@ -76,19 +77,25 @@ cdef class BitfinexOrderBook(OrderBook):
             timestamp=record.timestamp * 1e-3
         )
 
-    # @classmethod
-    # def trade_receive_message_from_db(cls, record: RowProxy, metadata: Optional[Dict] = None):
-    #     """
-    #     *used for backtesting
-    #     Convert a row of trade data into standard OrderBookMessage format
-    #     :param record: a row of trade data from the database
-    #     :return: CoinbaseProOrderBookMessage
-    #     """
-    #     return CoinbaseProOrderBookMessage(
-    #         OrderBookMessageType.TRADE,
-    #         record.json,
-    #         timestamp=record.timestamp * 1e-3
-    #     )
+    @classmethod
+    def trade_message_from_exchange(cls, msg: Dict[str, Any], metadata: Optional[Dict] = None):
+        if metadata:
+            msg.update(metadata)
+
+        timestamp = msg["mts"]
+        trade_type = TradeType.SELL if msg["amount"] < 0 else TradeType.BUY
+        return OrderBookMessage(
+            OrderBookMessageType.TRADE,
+            {
+                "symbol": msg["symbol"],
+                "trade_type": float(trade_type.value),
+                "trade_id": msg["id"],
+                "update_id": timestamp,
+                "price": msg["price"],
+                "amount": abs(msg["amount"]),
+            },
+            timestamp= timestamp * 1e-3
+        )
 
     @classmethod
     def from_snapshot(cls, snapshot: OrderBookMessage):
