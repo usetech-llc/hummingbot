@@ -43,6 +43,7 @@ Ticker = namedtuple(
     "symbol bid bid_size ask ask_size daily_change daily_change_percent last_price volume high low"
 )
 BookStructure = namedtuple("Book", "order_id price amount")
+TradeStructure = namedtuple("Trade", "id mts amount price")
 
 
 class BitfinexAPIOrderBookDataSource(OrderBookTrackerDataSource):
@@ -246,8 +247,50 @@ class BitfinexAPIOrderBookDataSource(OrderBookTrackerDataSource):
 
         return result
 
-    def listen_for_trades(self, ev_loop: asyncio.BaseEventLoop, output: asyncio.Queue):
-        pass
+    def _prepare_trade(self, raw_response: str) -> Dict[str, Any]:
+        _, content = ujson.loads(raw_response)
+        trade = TradeStructure(*content)
+        return {
+            "id": trade.id,
+            "mts": trade.mts,
+            "amount": trade.amount,
+            "price": trade.price,
+        }
+
+    async def _listen_trades_for_pair(self, pair: str, output: asyncio.Queue):
+        while True:
+            try:
+                async with websockets.connect(BITFINEX_WS_URI) as ws:
+                    ws: websockets.WebSocketClientProtocol = ws
+                    subscribe_request: Dict[str, Any] = {
+                        "event": "subscribe",
+                        "channel": "trades",
+                        "symbol": f"t{pair}",
+                    }
+                    await ws.send(ujson.dumps(subscribe_request))
+                    async for raw_msg in self._get_response(ws):
+                        msg = self._prepare_trade(raw_msg)
+                        msg_book: OrderBookMessage = BitfinexOrderBook.trade_message_from_exchange(
+                            msg,
+                            metadata={"symbol": f"t{pair}"}
+                        )
+                        output.put_nowait(msg_book)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                self.logger().error(
+                    "Unexpected error with WebSocket connection. "
+                    f"Retrying after {int(self.MESSAGE_TIMEOUT)} seconds...",
+                    exc_info=True)
+                await asyncio.sleep(self.MESSAGE_TIMEOUT)
+
+    async def listen_for_trades(self, ev_loop: asyncio.BaseEventLoop, output: asyncio.Queue):
+        trading_pairs: List[str] = await self.get_trading_pairs()
+
+        for pair in trading_pairs:
+            asyncio.ensure_future(
+                self._listen_trades_for_pair(pair, output)
+            )
 
     async def _get_response(self, ws: websockets.WebSocketClientProtocol) -> AsyncIterable[str]:
         try:

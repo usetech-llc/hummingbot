@@ -66,10 +66,9 @@ class BitfinexOrderBookTracker(OrderBookTracker):
     async def start(self):
         await super().start()
 
-        # TODO: COIN-16: Implement BitfinexOrderBookTracker.start
-        # self._order_book_trade_listener_task = safe_ensure_future(
-        #     self.data_source.listen_for_trades(self._ev_loop, self._order_book_trade_stream)
-        # )
+        self._order_book_trade_listener_task = safe_ensure_future(
+            self.data_source.listen_for_trades(self._ev_loop, self._order_book_trade_stream)
+        )
         self._order_book_diff_listener_task = safe_ensure_future(
             self.data_source.listen_for_order_book_diffs(self._ev_loop, self._order_book_diff_stream)
         )
@@ -78,6 +77,7 @@ class BitfinexOrderBookTracker(OrderBookTracker):
                 self._ev_loop, self._order_book_snapshot_stream
             )
         )
+        # TODO: COIN-16: Implement BitfinexOrderBookTracker.start
         # self._refresh_tracking_tasks = safe_ensure_future(
         #     self._refresh_tracking_loop()
         # )
