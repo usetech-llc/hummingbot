@@ -5,18 +5,18 @@ import time
 
 import aiohttp
 import asyncio
-# import json
+import ujson
 import pandas as pd
-#     AsyncIterable,
 from typing import (
     Any,
+    AsyncIterable,
     Dict,
     List,
     Optional,
 )
-# import websockets
-# from websockets.exceptions import ConnectionClosed
-#
+import websockets
+from websockets.exceptions import ConnectionClosed
+
 from hummingbot.core.data_type.order_book_message import OrderBookMessage
 from hummingbot.core.data_type.order_book import OrderBook
 from hummingbot.core.data_type.order_book_tracker_data_source import OrderBookTrackerDataSource
@@ -27,14 +27,13 @@ from hummingbot.core.utils import async_ttl_cache
 from hummingbot.logger import HummingbotLogger
 from hummingbot.market.bitfinex.bitfinex_order_book import BitfinexOrderBook
 
-BITFINEX_REST_URL = "https://api-pub.bitfinex.com/v2"
-# BITFINEX_WS_URI = "wss://api-pub.bitfinex.com/ws/2"
+BOOK_RET_TYPE = List[Dict[str, Any]]
 
+BITFINEX_REST_URL = "https://api-pub.bitfinex.com/v2"
+BITFINEX_WS_URI = "wss://api-pub.bitfinex.com/ws/2"
 
 RESPONSE_SUCCESS = 200
-# MAX_RETRIES = 10
 NaN = float("nan")
-
 MAIN_FIAT = "USD"
 
 s_base, s_quote = slice(1, 4), slice(4, 7)
@@ -43,14 +42,15 @@ Ticker = namedtuple(
     "Ticker",
     "symbol bid bid_size ask ask_size daily_change daily_change_percent last_price volume high low"
 )
-# BookStructure = namedtuple("BookStructure", "order price amount")
+BookStructure = namedtuple("Book", "order_id price amount")
 
 
 class BitfinexAPIOrderBookDataSource(OrderBookTrackerDataSource):
 
-    # MESSAGE_TIMEOUT = 30.0
+    MESSAGE_TIMEOUT = 30.0
     STEP_TIME_SLEEP = 1.0
     REQUEST_TTL = 60 * 30
+    TIME_SLEEP_BETWEEN_REQUESTS = 5.0
     CACHE_SIZE = 1
 
     _logger: Optional[HummingbotLogger] = None
@@ -84,7 +84,7 @@ class BitfinexAPIOrderBookDataSource(OrderBookTrackerDataSource):
         }
 
     @staticmethod
-    def _convert_volume(raw_prices: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def _convert_volume(raw_prices: Dict[str, Any]) -> BOOK_RET_TYPE:
         converters = {}
         prices = []
 
@@ -172,113 +172,34 @@ class BitfinexAPIOrderBookDataSource(OrderBookTrackerDataSource):
 
         return self._symbols
 
-    # # @staticmethod
-    # # async def _make_request(ws: websockets.WebSocketClientProtocol, request: dict) -> None:
-    # #     await ws.send(json.dumps(request))
-    # #
-    # # async def _get_response(self, ws: websockets.WebSocketClientProtocol) -> AsyncIterable[str]:
-    # #     try:
-    # #         return await asyncio.wait_for(ws.recv(), timeout=self.MESSAGE_TIMEOUT)
-    # #     except asyncio.TimeoutError:
-    # #         self.logger().warning("WebSocket timed out. Going to reconnect...")
-    # #     except ConnectionClosed:
-    # #         self.logger().warning("Connection closed")
-    # #
-    # # async def _yield_response(self, ws: websockets.WebSocketClientProtocol) -> AsyncIterable[str]:
-    # #     while True:
-    # #         yield await self._get_response(ws)
-    # #
-    # # @staticmethod
-    # # def _get_snapshot(pair: str, raw_snapshot: str) -> Dict[str, Any]:
-    # #     ch_id, content = json.loads(raw_snapshot)
-    # #     content = [BookStructure(*row) for row in content]
-    # #
-    # #     bids = [
-    # #         {"price": i.price, "amount": i.amount, "orderId": i.order}
-    # #         for i in content if i.amount > 0
-    # #     ]
-    # #     asks = [
-    # #         {"price": i.price, "amount": abs(i.amount), "orderId": i.order}
-    # #         for i in content if i.amount < 0
-    # #     ]
-    # #     return {
-    # #         "symbol": pair,
-    # #         "bids": bids,
-    # #         "asks": asks,
-    # #     }
+    @staticmethod
+    def _prepare_snapshot(pair: str, raw_snapshot: List[BookStructure]) -> Dict[str, Any]:
+        bids = [
+            {"price": i.price, "amount": i.amount, "orderId": i.order_id}
+            for i in raw_snapshot if i.amount > 0
+        ]
+        asks = [
+            {"price": i.price, "amount": abs(i.amount), "orderId": i.order_id}
+            for i in raw_snapshot if i.amount < 0
+        ]
+        return {
+            "symbol": pair,
+            "bids": bids,
+            "asks": asks,
+        }
 
     async def get_snapshot(self, client: aiohttp.ClientSession, trading_pair: str) -> Dict[str, Any]:
-        pass
+        request_url: str = f"{BITFINEX_REST_URL}/book/t{trading_pair}/R0"
 
-    # #
-    # # @staticmethod
-    # # def _get_diff(raw_diff: str) -> BookStructure:
-    # #     _, content = json.loads(raw_diff)
-    # #     return BookStructure(*content)
-    # #
-    # # def _apply_snapshot(self, pair, raw_snapshot: str) -> OrderBookTrackerEntry:
-    # #     snapshot: Dict[str, any] = self._get_snapshot(pair, raw_snapshot)
-    # #     snapshot_timestamp: float = time.time()
-    # #     snapshot_msg: OrderBookMessage = BitfinexOrderBook.snapshot_message_from_exchange(
-    # #         snapshot,
-    # #         snapshot_timestamp,
-    # #         metadata={"symbol": pair},
-    # #     )
-    # #     order_book: OrderBook = self.order_book_create_function()
-    # #     order_book.apply_snapshot(
-    # #         snapshot_msg.bids, snapshot_msg.asks, snapshot_msg.update_id)
-    # #
-    # #     return BitfinexOrderBookTrackingEntry(
-    # #         pair,
-    # #         snapshot_timestamp,
-    # #         order_book,
-    # #     )
-    # #
-    # # def _apply_diff(self, pair, raw_diff) -> None:
-    #     _: BookStructure = self._get_diff(raw_diff)
-    #     # print(pair, raw_diff)
-    #     # self.d -= 1
-    #     # if self.d < 0:
-    #     #     raise TypeError(pair)
-    #     TODO: continue
-    # #
-    # # async def _listen_order_book_for_pair(self, pair: str) -> OrderBookTrackerEntry:
-    #     while True:
-    #         ws: websockets.WebSocketClientProtocol = None
-    #         try:
-    #             async with websockets.connect(BITFINEX_WS_URI) as socket:
-    #                 ws = socket
-    #                 subscribe_request: Dict[str, Any] = {
-    #                     "event": "subscribe",
-    #                     "channel": "book",
-    #                     "prec": "R0",
-    #                     "symbol": f"t{pair}",
-    #                 }
-    #                 await self._make_request(ws, subscribe_request)
-    #
-    #                 raw_response = await self._get_response(ws)
-    #                 self.logger().info(raw_response)
-    #
-    #                 subscribe_info = await self._get_response(ws)
-    #                 self.logger().info(subscribe_info)
-    #
-    #                 raw_snapshot: str = await self._get_response(ws)
-    #                 self._apply_snapshot(pair, raw_snapshot)
-    #
-    #                 # async for diff in self._yield_response(ws):
-    #                 #     self._apply_diff(pair, diff)
-    #         except asyncio.CancelledError:
-    #             raise
-    #         except Exception as err:
-    #             self.logger().error(err)
-    #             self.logger().error(
-    #                 "Unexpected error with WebSocket connection. "
-    #                 f"Retrying after {self.MESSAGE_TIMEOUT} seconds...",
-    #                 exc_info=True
-    #             )
-    #             await asyncio.sleep(self.MESSAGE_TIMEOUT)
-    #         finally:
-    #             await ws.close()
+        async with client.get(request_url)as response:
+            response: aiohttp.ClientResponse = response
+
+            if response.status != RESPONSE_SUCCESS:
+                raise IOError(f"Error fetching Coinbase Pro market snapshot for {trading_pair}. "
+                              f"HTTP status is {response.status}.")
+
+            raw_data: Dict[str, Any] = await response.json()
+            return self._prepare_snapshot(trading_pair, [BookStructure(*i) for i in raw_data])
 
     async def get_tracking_pairs(self) -> Dict[str, OrderBookTrackerEntry]:
         result: Dict[str, OrderBookTrackerEntry] = {}
@@ -328,8 +249,109 @@ class BitfinexAPIOrderBookDataSource(OrderBookTrackerDataSource):
     def listen_for_trades(self, ev_loop: asyncio.BaseEventLoop, output: asyncio.Queue):
         pass
 
-    def listen_for_order_book_diffs(self, ev_loop: asyncio.BaseEventLoop, output: asyncio.Queue):
-        pass
+    async def _get_response(self, ws: websockets.WebSocketClientProtocol) -> AsyncIterable[str]:
+        try:
+            await asyncio.wait_for(ws.recv(), timeout=self.MESSAGE_TIMEOUT)     # response
+            await asyncio.wait_for(ws.recv(), timeout=self.MESSAGE_TIMEOUT)     # subscribe info
+            await asyncio.wait_for(ws.recv(), timeout=self.MESSAGE_TIMEOUT)     # snapshot
+            while True:
+                try:
+                    msg: str = await asyncio.wait_for(ws.recv(), timeout=self.MESSAGE_TIMEOUT)
+                    yield msg
+                except asyncio.TimeoutError:
+                    raise
+        except asyncio.TimeoutError:
+            self.logger().warning("WebSocket ping timed out. Going to reconnect...")
+            return
+        except ConnectionClosed:
+            return
+        finally:
+            await ws.close()
 
-    def listen_for_order_book_snapshots(self, ev_loop: asyncio.BaseEventLoop, output: asyncio.Queue):
-        pass
+    def _prepare_response(self, raw_response: str) -> Dict[str, Any]:
+        _, content = ujson.loads(raw_response)
+        book = BookStructure(*content)
+        return self._prepare_snapshot([book])
+
+    async def _listen_order_book_for_pair(self, pair: str, output: asyncio.Queue):
+        while True:
+            try:
+                async with websockets.connect(BITFINEX_WS_URI) as ws:
+                    ws: websockets.WebSocketClientProtocol = ws
+                    subscribe_request: Dict[str, Any] = {
+                        "event": "subscribe",
+                        "channel": "book",
+                        "prec": "R0",
+                        "symbol": f"t{pair}",
+                    }
+                    await ws.send(ujson.dumps(subscribe_request))
+                    async for raw_msg in self._get_response(ws):
+                        msg = self._prepare_response(raw_msg)
+                        msg_book: OrderBookMessage = BitfinexOrderBook.diff_message_from_exchange(msg)
+                        output.put_nowait(msg_book)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                self.logger().network(
+                    f"Unexpected error with WebSocket connection.",
+                    exc_info=True,
+                    app_warning_msg="Unexpected error with WebSocket connection. "
+                                    f"Retrying in {int(self.MESSAGE_TIMEOUT)} seconds. "
+                                    "Check network connection."
+                )
+                await asyncio.sleep(self.MESSAGE_TIMEOUT)
+
+    async def listen_for_order_book_diffs(self,
+                                          ev_loop: asyncio.BaseEventLoop,
+                                          output: asyncio.Queue):
+        trading_pairs: List[str] = await self.get_trading_pairs()
+
+        for pair in trading_pairs:
+            asyncio.ensure_future(
+                self._listen_order_book_for_pair(pair, output)
+            )
+
+    async def listen_for_order_book_snapshots(self,
+                                              ev_loop: asyncio.BaseEventLoop,
+                                              output: asyncio.Queue):
+        while True:
+            trading_pairs: List[str] = await self.get_trading_pairs()
+
+            try:
+                async with aiohttp.ClientSession() as client:
+                    for pair in trading_pairs:
+                        try:
+                            snapshot: Dict[str, Any] = await self.get_snapshot(client, pair)
+                            snapshot_timestamp: float = time.time()
+                            snapshot_msg: OrderBookMessage = BitfinexOrderBook.snapshot_message_from_exchange(
+                                snapshot,
+                                snapshot_timestamp,
+                                metadata={"product_id": pair}
+                            )
+
+                            output.put_nowait(snapshot_msg)
+                            self.logger().debug(f"Saved order book snapshot for {pair}")
+
+                            await asyncio.sleep(self.TIME_SLEEP_BETWEEN_REQUESTS)
+                        except asyncio.CancelledError:
+                            raise
+                        except Exception:
+                            self.logger().network(
+                                f"Unexpected error with WebSocket connection.",
+                                exc_info=True,
+                                app_warning_msg="Unexpected error with WebSocket connection. "
+                                                f"Retrying in {self.TIME_SLEEP_BETWEEN_REQUESTS} sec."
+                                                f"Check network connection."
+                            )
+                            await asyncio.sleep(self.TIME_SLEEP_BETWEEN_REQUESTS)
+                    this_hour: pd.Timestamp = pd.Timestamp.utcnow().replace(
+                        minute=0, second=0, microsecond=0
+                    )
+                    next_hour: pd.Timestamp = this_hour + pd.Timedelta(hours=1)
+                    delta: float = next_hour.timestamp() - time.time()
+                    await asyncio.sleep(delta)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                self.logger().error("Unexpected error", exc_info=True)
+                await asyncio.sleep(self.TIME_SLEEP_BETWEEN_REQUESTS)
