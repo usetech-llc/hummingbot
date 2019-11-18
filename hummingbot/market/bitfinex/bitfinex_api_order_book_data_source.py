@@ -139,7 +139,7 @@ class BitfinexAPIOrderBookDataSource(OrderBookTrackerDataSource):
                 status = tickers_response.status
                 if status != RESPONSE_SUCCESS:
                     raise IOError(
-                        f"Error fetching active Coinbase Pro markets. HTTP status is {status}.")
+                        f"Error fetching active Bitfinex markets. HTTP status is {status}.")
 
                 data = await tickers_response.json()
 
@@ -175,14 +175,8 @@ class BitfinexAPIOrderBookDataSource(OrderBookTrackerDataSource):
 
     @staticmethod
     def _prepare_snapshot(pair: str, raw_snapshot: List[BookStructure]) -> Dict[str, Any]:
-        bids = [
-            {"price": i.price, "amount": i.amount, "orderId": i.order_id}
-            for i in raw_snapshot if i.amount > 0
-        ]
-        asks = [
-            {"price": i.price, "amount": abs(i.amount), "orderId": i.order_id}
-            for i in raw_snapshot if i.amount < 0
-        ]
+        bids = [(i.price, i.amount) for i in raw_snapshot if i.amount > 0]
+        asks = [(i.price, abs(i.amount)) for i in raw_snapshot if i.amount < 0]
         return {
             "symbol": pair,
             "bids": bids,
@@ -248,14 +242,19 @@ class BitfinexAPIOrderBookDataSource(OrderBookTrackerDataSource):
         return result
 
     def _prepare_trade(self, raw_response: str) -> Dict[str, Any]:
-        _, content = ujson.loads(raw_response)
-        trade = TradeStructure(*content)
-        return {
-            "id": trade.id,
-            "mts": trade.mts,
-            "amount": trade.amount,
-            "price": trade.price,
-        }
+        *_, content = ujson.loads(raw_response)
+        try:
+            trade = TradeStructure(*content)
+        except Exception as err:
+            self.logger().error(err)
+            self.logger().error(raw_response)
+        else:
+            return {
+                "id": trade.id,
+                "mts": trade.mts,
+                "amount": trade.amount,
+                "price": trade.price,
+            }
 
     async def _listen_trades_for_pair(self, pair: str, output: asyncio.Queue):
         while True:
@@ -270,11 +269,12 @@ class BitfinexAPIOrderBookDataSource(OrderBookTrackerDataSource):
                     await ws.send(ujson.dumps(subscribe_request))
                     async for raw_msg in self._get_response(ws):
                         msg = self._prepare_trade(raw_msg)
-                        msg_book: OrderBookMessage = BitfinexOrderBook.trade_message_from_exchange(
-                            msg,
-                            metadata={"symbol": f"t{pair}"}
-                        )
-                        output.put_nowait(msg_book)
+                        if msg:
+                            msg_book: OrderBookMessage = BitfinexOrderBook.trade_message_from_exchange(
+                                msg,
+                                metadata={"symbol": f"t{pair}"}
+                            )
+                            output.put_nowait(msg_book)
             except asyncio.CancelledError:
                 raise
             except Exception:

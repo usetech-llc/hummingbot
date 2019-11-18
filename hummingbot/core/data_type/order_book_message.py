@@ -537,11 +537,3 @@ class BitfinexOrderBookMessage(OrderBookMessage):
     @property
     def symbol(self) -> str:
         return self.content["symbol"]
-
-    @property
-    def asks(self) -> List[OrderBookRow]:
-        raise NotImplementedError("Bitfinex order book messages have different semantics.")
-
-    @property
-    def bids(self) -> List[OrderBookRow]:
-        raise NotImplementedError("Bitfinex Pro order book messages have different semantics.")

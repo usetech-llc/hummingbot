@@ -21,7 +21,7 @@ from hummingbot.core.utils.async_utils import safe_ensure_future
 sys.path.insert(0, realpath(join(__file__, "../../../")))
 
 
-class BitfinexOrderBookTrackerUnitTest(unittest.TestCase):
+class TestBitfinexOrderBookTracker(unittest.TestCase):
     order_book_tracker: Optional[BitfinexOrderBookTracker] = None
     events: List[OrderBookEvent] = [
         OrderBookEvent.TradeEvent
