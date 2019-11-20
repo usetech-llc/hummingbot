@@ -234,7 +234,8 @@ class BitfinexOrderBookTracker(OrderBookTracker):
                     self.logger().debug("Processed order book snapshot for %s.", symbol)
             except asyncio.CancelledError:
                 raise
-            except Exception:
+            except Exception as err:
+                self.logger().error("track single book", err)
                 self.logger().network(
                     f"Unexpected error processing order book messages for {symbol}.",
                     exc_info=True,

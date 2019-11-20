@@ -523,16 +523,11 @@ class BitfinexOrderBookMessage(OrderBookMessage):
 
     @property
     def update_id(self) -> int:
-        if self.type in [OrderBookMessageType.DIFF, OrderBookMessageType.SNAPSHOT]:
-            return int(self.content["sequence"])
-        else:
-            return -1
+        return int(self.timestamp)
 
     @property
     def trade_id(self) -> int:
-        if self.type is OrderBookMessageType.TRADE:
-            return int(self.content["sequence"])
-        return -1
+        return self.content["trade_id"]
 
     @property
     def symbol(self) -> str:

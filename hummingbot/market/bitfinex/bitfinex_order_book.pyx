@@ -36,6 +36,8 @@ cdef class BitfinexOrderBook(OrderBook):
                                        metadata: Optional[Dict] = None) -> OrderBookMessage:
         if metadata:
             msg.update(metadata)
+
+        msg.update(type=str(OrderBookMessageType.SNAPSHOT.value))
         return BitfinexOrderBookMessage(
             message_type=OrderBookMessageType.SNAPSHOT,
             content=msg,
@@ -51,6 +53,8 @@ cdef class BitfinexOrderBook(OrderBook):
             msg.update(metadata)
         if "time" in msg:
             msg_time = pd.Timestamp(msg["time"]).timestamp()
+
+        msg.update(type=str(OrderBookMessageType.DIFF.value))
         return BitfinexOrderBookMessage(
             message_type=OrderBookMessageType.DIFF,
             content=msg,
@@ -83,7 +87,7 @@ cdef class BitfinexOrderBook(OrderBook):
             msg.update(metadata)
 
         timestamp = msg["mts"]
-        trade_type = TradeType.SELL if msg["amount"] < 0 else TradeType.BUY
+        trade_type = TradeType.SELL if int(msg["amount"]) < 0 else TradeType.BUY
         return OrderBookMessage(
             OrderBookMessageType.TRADE,
             {
