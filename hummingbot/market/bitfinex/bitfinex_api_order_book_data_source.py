@@ -21,10 +21,12 @@ from hummingbot.core.data_type.order_book_message import OrderBookMessage
 from hummingbot.core.data_type.order_book import OrderBook
 from hummingbot.core.data_type.order_book_tracker_data_source import OrderBookTrackerDataSource
 from hummingbot.core.data_type.order_book_tracker_entry import (
+    BitfinexOrderBookTrackerEntry,
     OrderBookTrackerEntry
 )
 from hummingbot.core.utils import async_ttl_cache
 from hummingbot.logger import HummingbotLogger
+from hummingbot.market.bitfinex.bitfinex_active_order_tracker import BitfinexActiveOrderTracker
 from hummingbot.market.bitfinex.bitfinex_order_book import BitfinexOrderBook
 
 BOOK_RET_TYPE = List[Dict[str, Any]]
@@ -175,8 +177,8 @@ class BitfinexAPIOrderBookDataSource(OrderBookTrackerDataSource):
 
     @staticmethod
     def _prepare_snapshot(pair: str, raw_snapshot: List[BookStructure]) -> Dict[str, Any]:
-        bids = [(i.price, i.amount) for i in raw_snapshot if i.amount > 0]
-        asks = [(i.price, abs(i.amount)) for i in raw_snapshot if i.amount < 0]
+        bids = [(i.order_id, i.price, i.amount) for i in raw_snapshot if i.amount > 0]
+        asks = [(i.order_id, i.price, abs(i.amount)) for i in raw_snapshot if i.amount < 0]
         return {
             "symbol": pair,
             "bids": bids,
@@ -214,12 +216,13 @@ class BitfinexAPIOrderBookDataSource(OrderBookTrackerDataSource):
                     )
 
                     order_book: OrderBook = self.order_book_create_function()
-                    order_book.apply_snapshot(
-                        snapshot_msg.bids, snapshot_msg.asks, snapshot_msg.update_id
-                    )
+                    active_order_tracker: BitfinexActiveOrderTracker = BitfinexActiveOrderTracker()
 
-                    result[trading_pair] = OrderBookTrackerEntry(
-                        trading_pair, snapshot_timestamp, order_book
+                    order_book.apply_snapshot(
+                        snapshot_msg.bids, snapshot_msg.asks, snapshot_msg.update_id)
+
+                    result[trading_pair] = BitfinexOrderBookTrackerEntry(
+                        trading_pair, snapshot_timestamp, order_book, active_order_tracker
                     )
                     self.logger().info(
                         "Initialized order book for {trading_pair}. "
@@ -267,6 +270,9 @@ class BitfinexAPIOrderBookDataSource(OrderBookTrackerDataSource):
                         "symbol": f"t{pair}",
                     }
                     await ws.send(ujson.dumps(subscribe_request))
+                    await asyncio.wait_for(ws.recv(), timeout=self.MESSAGE_TIMEOUT)  # response
+                    await asyncio.wait_for(ws.recv(), timeout=self.MESSAGE_TIMEOUT)  # subscribe info
+                    await asyncio.wait_for(ws.recv(), timeout=self.MESSAGE_TIMEOUT)  # snapshot
                     async for raw_msg in self._get_response(ws):
                         msg = self._prepare_trade(raw_msg)
                         if msg:
@@ -277,7 +283,8 @@ class BitfinexAPIOrderBookDataSource(OrderBookTrackerDataSource):
                             output.put_nowait(msg_book)
             except asyncio.CancelledError:
                 raise
-            except Exception:
+            except Exception as err:
+                self.logger().error(f"listen trades for pair {pair}", err)
                 self.logger().error(
                     "Unexpected error with WebSocket connection. "
                     f"Retrying after {int(self.MESSAGE_TIMEOUT)} seconds...",
@@ -287,16 +294,14 @@ class BitfinexAPIOrderBookDataSource(OrderBookTrackerDataSource):
     async def listen_for_trades(self, ev_loop: asyncio.BaseEventLoop, output: asyncio.Queue):
         trading_pairs: List[str] = await self.get_trading_pairs()
 
-        for pair in trading_pairs:
-            asyncio.ensure_future(
-                self._listen_trades_for_pair(pair, output)
-            )
+        tasks = [
+            ev_loop.create_task(self._listen_trades_for_pair(pair, output))
+            for pair in trading_pairs
+        ]
+        await asyncio.gather(*tasks)
 
     async def _get_response(self, ws: websockets.WebSocketClientProtocol) -> AsyncIterable[str]:
         try:
-            await asyncio.wait_for(ws.recv(), timeout=self.MESSAGE_TIMEOUT)     # response
-            await asyncio.wait_for(ws.recv(), timeout=self.MESSAGE_TIMEOUT)     # subscribe info
-            await asyncio.wait_for(ws.recv(), timeout=self.MESSAGE_TIMEOUT)     # snapshot
             while True:
                 try:
                     msg: str = await asyncio.wait_for(ws.recv(), timeout=self.MESSAGE_TIMEOUT)
@@ -311,10 +316,10 @@ class BitfinexAPIOrderBookDataSource(OrderBookTrackerDataSource):
         finally:
             await ws.close()
 
-    def _prepare_response(self, raw_response: str) -> Dict[str, Any]:
+    def _prepare_response(self, pair: str, raw_response: str) -> Dict[str, Any]:
         _, content = ujson.loads(raw_response)
         book = BookStructure(*content)
-        return self._prepare_snapshot([book])
+        return self._prepare_snapshot(pair, [book])
 
     async def _listen_order_book_for_pair(self, pair: str, output: asyncio.Queue):
         while True:
@@ -328,13 +333,20 @@ class BitfinexAPIOrderBookDataSource(OrderBookTrackerDataSource):
                         "symbol": f"t{pair}",
                     }
                     await ws.send(ujson.dumps(subscribe_request))
+                    await asyncio.wait_for(ws.recv(), timeout=self.MESSAGE_TIMEOUT)  # response
+                    await asyncio.wait_for(ws.recv(), timeout=self.MESSAGE_TIMEOUT)  # subscribe info
+                    await asyncio.wait_for(ws.recv(), timeout=self.MESSAGE_TIMEOUT)  # snapshot
                     async for raw_msg in self._get_response(ws):
-                        msg = self._prepare_response(raw_msg)
-                        msg_book: OrderBookMessage = BitfinexOrderBook.diff_message_from_exchange(msg)
+                        msg = self._prepare_response(pair, raw_msg)
+                        msg_book: OrderBookMessage = BitfinexOrderBook.diff_message_from_exchange(
+                            msg,
+                            timestamp=time.time()
+                        )
                         output.put_nowait(msg_book)
             except asyncio.CancelledError:
                 raise
-            except Exception:
+            except Exception as err:
+                self.logger().error(err)
                 self.logger().network(
                     f"Unexpected error with WebSocket connection.",
                     exc_info=True,
@@ -349,10 +361,12 @@ class BitfinexAPIOrderBookDataSource(OrderBookTrackerDataSource):
                                           output: asyncio.Queue):
         trading_pairs: List[str] = await self.get_trading_pairs()
 
-        for pair in trading_pairs:
-            asyncio.ensure_future(
-                self._listen_order_book_for_pair(pair, output)
-            )
+        tasks = [
+            self._listen_order_book_for_pair(pair, output)
+            for pair in trading_pairs
+        ]
+
+        await asyncio.gather(*tasks)
 
     async def listen_for_order_book_snapshots(self,
                                               ev_loop: asyncio.BaseEventLoop,
@@ -371,14 +385,14 @@ class BitfinexAPIOrderBookDataSource(OrderBookTrackerDataSource):
                                 snapshot_timestamp,
                                 metadata={"product_id": pair}
                             )
-
                             output.put_nowait(snapshot_msg)
                             self.logger().debug(f"Saved order book snapshot for {pair}")
 
                             await asyncio.sleep(self.TIME_SLEEP_BETWEEN_REQUESTS)
                         except asyncio.CancelledError:
                             raise
-                        except Exception:
+                        except Exception as err:
+                            self.logger().error("Listening snapshots", err)
                             self.logger().network(
                                 f"Unexpected error with WebSocket connection.",
                                 exc_info=True,
@@ -395,6 +409,7 @@ class BitfinexAPIOrderBookDataSource(OrderBookTrackerDataSource):
                     await asyncio.sleep(delta)
             except asyncio.CancelledError:
                 raise
-            except Exception:
+            except Exception as err:
+                self.logger().error("Listening snapshots", err)
                 self.logger().error("Unexpected error", exc_info=True)
                 await asyncio.sleep(self.TIME_SLEEP_BETWEEN_REQUESTS)

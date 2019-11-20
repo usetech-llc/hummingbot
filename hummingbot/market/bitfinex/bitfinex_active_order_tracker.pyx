@@ -69,172 +69,50 @@ cdef class BitfinexActiveOrderTracker:
         return sum([float(msg["remaining_size"]) for msg in self._active_bids[price].values()])
 
     cdef tuple c_convert_diff_message_to_np_arrays(self, object message):
-        """
-        Interpret an incoming diff message and apply changes to the order book accordingly
-        :returns: new order book rows: Tuple(np.array (bids), np.array (asks))
-        """
-
         cdef:
             dict content = message.content
-            str msg_type = content["type"]
-            str order_id
-            str order_side
-            str price_raw
+            list bid_entries = content["bids"]
+            list ask_entries = content["asks"]
+            double order_id
             object price
             dict order_dict
-            str remaining_size
             double timestamp = message.timestamp
             double quantity = 0
 
-        order_id = content.get("order_id") or content.get("maker_order_id")
-        order_side = content.get("side")
-        price_raw = content.get("price")
-        if order_id is None:
-            raise ValueError(f"Unknown order id for message - '{message}'. Aborting.")
-        if order_side not in [SIDE_BUY, SIDE_SELL]:
-            raise ValueError(f"Unknown order side for message - '{message}'. Aborting.")
-        if price_raw is None:
-            raise ValueError(f"Unknown order price for message - '{message}'. Aborting.")
-        elif price_raw == "null":   # 'change' messages have 'null' as price for market orders
-            return s_empty_diff, s_empty_diff
-        price = Decimal(price_raw)
+        bids = s_empty_diff
+        asks = s_empty_diff
 
-        if msg_type == TYPE_OPEN:
-            order_dict = {
-                "order_id": order_id,
-                "remaining_size": content["remaining_size"]
-            }
-            if order_side == SIDE_BUY:
-                if price in self._active_bids:
-                    self._active_bids[price][order_id] = order_dict
-                else:
-                    self._active_bids[price] = {order_id: order_dict}
-                quantity = self.volume_for_bid_price(price)
-                return np.array(
-                    [[timestamp, float(price), quantity, message.update_id]], dtype="float64"
-                ), s_empty_diff
-            else:
-                if price in self._active_asks:
-                    self._active_asks[price][order_id] = order_dict
-                else:
-                    self._active_asks[price] = {order_id: order_dict}
-                quantity = self.volume_for_ask_price(price)
-                return s_empty_diff, np.array(
-                    [[timestamp, float(price), quantity, message.update_id]], dtype="float64")
+        if len(bid_entries) > 0:
+            bids = np.array(
+                [
+                    [
+                        float(timestamp),
+                        float(price),
+                        float(quantity),
+                        float(message.update_id)
+                    ]
+                    for order_id, price, quantity in bid_entries
+                ],
+                dtype="float64",
+                ndmin=2
+            )
 
-        elif msg_type == TYPE_CHANGE:
-            if content.get("new_size") is not None:
-                remaining_size = content["new_size"]
-            elif content.get("new_funds") is not None:
-                remaining_size = str(Decimal(content["new_funds"]) / price)
-            else:
-                raise ValueError(f"Invalid change message - '{message}'. Aborting.")
-            if order_side == SIDE_BUY:
-                if price in self._active_bids and order_id in self._active_bids[price]:
-                    self._active_bids[price][order_id]["remaining_size"] = remaining_size
-                    quantity = self.volume_for_bid_price(price)
-                    return (
-                        np.array(
-                            [[timestamp, float(price), quantity, message.update_id]],
-                            dtype="float64"),
-                        s_empty_diff
-                    )
-                else:
-                    return s_empty_diff, s_empty_diff
-            else:
-                if price in self._active_asks and order_id in self._active_asks[price]:
-                    self._active_asks[price][order_id]["remaining_size"] = remaining_size
-                    quantity = self.volume_for_ask_price(price)
-                    return (
-                        s_empty_diff,
-                        np.array(
-                            [[timestamp, float(price), quantity, message.update_id]], dtype="float64"
-                        )
-                    )
-                else:
-                    return s_empty_diff, s_empty_diff
+        if len(ask_entries) > 0:
+            asks = np.array(
+                [
+                    [
+                        float(timestamp),
+                        float(price),
+                        float(quantity),
+                        float(message.update_id)
+                    ]
+                    for order_id, price, quantity in ask_entries
+                ],
+                dtype="float64",
+                ndmin=2
+            )
 
-        elif msg_type == TYPE_MATCH:
-            if order_side == SIDE_BUY:
-                if price in self._active_bids and order_id in self._active_bids[price]:
-                    remaining_size = self._active_bids[price][order_id]["remaining_size"]
-                    self._active_bids[price][order_id]["remaining_size"] = str(
-                        float(remaining_size) - float(content["size"])
-                    )
-                    quantity = self.volume_for_bid_price(price)
-                    return (
-                        np.array(
-                            [[timestamp, float(price), quantity, message.update_id]],
-                            dtype="float64"),
-                        s_empty_diff
-                    )
-                else:
-                    return s_empty_diff, s_empty_diff
-            else:
-                if price in self._active_asks and order_id in self._active_asks[price]:
-                    remaining_size = self._active_asks[price][order_id]["remaining_size"]
-                    self._active_asks[price][order_id]["remaining_size"] = str(
-                        float(remaining_size) - float(content["size"])
-                    )
-                    quantity = self.volume_for_ask_price(price)
-                    return (
-                        s_empty_diff,
-                        np.array(
-                            [[timestamp, float(price), quantity, message.update_id]],
-                            dtype="float64"
-                        )
-                    )
-                else:
-                    return s_empty_diff, s_empty_diff
-
-        elif msg_type == TYPE_DONE:
-            if order_side == SIDE_BUY:
-                if price in self._active_bids and order_id in self._active_bids[price]:
-                    del self._active_bids[price][order_id]
-                    if len(self._active_bids[price]) < 1:
-                        del self._active_bids[price]
-                        return (
-                            np.array(
-                                [[timestamp, float(price), 0.0, message.update_id]],
-                                dtype="float64"
-                            ),
-                            s_empty_diff
-                        )
-                    else:
-                        quantity = self.volume_for_bid_price(price)
-                        return (
-                            np.array(
-                                [[timestamp, float(price), quantity, message.update_id]],
-                                dtype="float64"
-                            ),
-                            s_empty_diff
-                        )
-                return s_empty_diff, s_empty_diff
-            else:
-                if price in self._active_asks and order_id in self._active_asks[price]:
-                    del self._active_asks[price][order_id]
-                    if len(self._active_asks[price]) < 1:
-                        del self._active_asks[price]
-                        return (
-                            s_empty_diff,
-                            np.array(
-                                [[timestamp, float(price), 0.0, message.update_id]],
-                                dtype="float64"
-                            )
-                        )
-                    else:
-                        quantity = self.volume_for_ask_price(price)
-                        return (
-                            s_empty_diff,
-                            np.array(
-                                [[timestamp, float(price), quantity, message.update_id]],
-                                dtype="float64"
-                            )
-                        )
-                return s_empty_diff, s_empty_diff
-
-        else:
-            raise ValueError(f"Unknown message type '{msg_type}' - {message}. Aborting.")
+        return bids, asks
 
     cdef tuple c_convert_snapshot_message_to_np_arrays(self, object message):
         """

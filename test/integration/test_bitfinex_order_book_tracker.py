@@ -21,14 +21,13 @@ from hummingbot.core.utils.async_utils import safe_ensure_future
 sys.path.insert(0, realpath(join(__file__, "../../../")))
 
 
-class TestBitfinexOrderBookTracker(unittest.TestCase):
+class BitfinexOrderBookTrackerUnitTest(unittest.TestCase):
     order_book_tracker: Optional[BitfinexOrderBookTracker] = None
     events: List[OrderBookEvent] = [
         OrderBookEvent.TradeEvent
     ]
     trading_pairs: List[str] = [
-        "LTC-BTC",
-        "LTC-ETH"
+        "DXTUST",
     ]
 
     @classmethod
@@ -90,7 +89,7 @@ class TestBitfinexOrderBookTracker(unittest.TestCase):
         # Wait 5 seconds to process some diffs.
         self.ev_loop.run_until_complete(asyncio.sleep(5.0))
         order_books: Dict[str, OrderBook] = self.order_book_tracker.order_books
-        ltcbtc_book: OrderBook = order_books["LTC-BTC"]
+        ltcbtc_book: OrderBook = order_books["DXTUST"]
         # print(ltcbtc_book)
         self.assertGreaterEqual(ltcbtc_book.get_price_for_volume(True, 10).result_price,
                                 ltcbtc_book.get_price(True))
