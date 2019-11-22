@@ -27,8 +27,11 @@ class BitfinexOrderBookTrackerUnitTest(unittest.TestCase):
         OrderBookEvent.TradeEvent
     ]
     trading_pairs: List[str] = [
-        "DXTUST",
+        "BTCUSD",
     ]
+    integrity_test_max_volume = 100   # Max volume in asks and bids for the book to be ready for tests
+    daily_volume = 5000               # Approximate total daily volume in BTC for this exchange for sanity test
+    book_enties = 100                 # Number of asks and bids (each) for the book to be ready for tests
 
     @classmethod
     def setUpClass(cls):
@@ -40,8 +43,32 @@ class BitfinexOrderBookTrackerUnitTest(unittest.TestCase):
 
     @classmethod
     async def wait_til_tracker_ready(cls):
+        '''
+        Wait until the order book under test fills as needed
+        '''
+        print("Waiting for order book to fill...")
         while True:
-            if len(cls.order_book_tracker.order_books) > 0:
+            book_present = cls.trading_pairs[0] in cls.order_book_tracker.order_books
+            enough_asks = False
+            enough_bids = False
+            enough_ask_rows = False
+            enough_bid_rows = False
+            if book_present:
+                ask_volume = sum(i.amount for i in cls.order_book_tracker.order_books[cls.trading_pairs[0]].ask_entries())
+                ask_count = sum(1 for i in cls.order_book_tracker.order_books[cls.trading_pairs[0]].ask_entries())
+
+                bid_volume = sum(i.amount for i in cls.order_book_tracker.order_books[cls.trading_pairs[0]].bid_entries())
+                bid_count = sum(1 for i in cls.order_book_tracker.order_books[cls.trading_pairs[0]].bid_entries())
+
+                enough_asks = ask_volume >= cls.integrity_test_max_volume
+                enough_bids = bid_volume >= cls.integrity_test_max_volume
+
+                enough_ask_rows = ask_count >= cls.book_enties
+                enough_bid_rows = bid_count >= cls.book_enties
+
+                print("Bid volume in book: %f (in %d bids), ask volume in book: %f (in %d asks)" % (bid_volume, bid_count, ask_volume, ask_count))
+
+            if book_present and enough_asks and enough_bids and enough_ask_rows and enough_bid_rows:
                 print("Initialized real-time order books.")
                 return
             await asyncio.sleep(1)
@@ -86,15 +113,50 @@ class BitfinexOrderBookTrackerUnitTest(unittest.TestCase):
             self.assertTrue(ob_trade_event.price > 0)
 
     def test_tracker_integrity(self):
-        # Wait 5 seconds to process some diffs.
-        self.ev_loop.run_until_complete(asyncio.sleep(5.0))
         order_books: Dict[str, OrderBook] = self.order_book_tracker.order_books
-        ltcbtc_book: OrderBook = order_books["DXTUST"]
-        # print(ltcbtc_book)
-        self.assertGreaterEqual(ltcbtc_book.get_price_for_volume(True, 10).result_price,
-                                ltcbtc_book.get_price(True))
-        self.assertLessEqual(ltcbtc_book.get_price_for_volume(False, 10).result_price,
-                             ltcbtc_book.get_price(False))
+        sut_book: OrderBook = order_books[self.trading_pairs[0]]
+        print("Book: ")
+        print(sut_book.snapshot)
+
+        # # 1 - test that best bid is less than best ask
+        # self.assertGreater(sut_book.get_price(False), sut_book.get_price(True))
+
+        # 2 - test that price to buy integrity_test_max_volume BTC is is greater than or equal to best ask
+        self.assertGreaterEqual(sut_book.get_price_for_volume(True, 10).result_price,
+                                sut_book.get_price(True))
+
+        # 3 - test that price to sell integrity_test_max_volume BTC is is less than or equal to best bid
+        self.assertLessEqual(sut_book.get_price_for_volume(False, 10).result_price,
+                             sut_book.get_price(False))
+
+        # 4 - test that all bids in order book are sorted by price in descending order
+        previous_price = sys.float_info.max
+        for bid_row in sut_book.bid_entries():
+            self.assertTrue(previous_price >= bid_row.price)
+            previous_price = bid_row.price
+
+        # 5 - test that all asks in order book are sorted by price in ascending order
+        previous_price = 0
+        for ask_row in sut_book.ask_entries():
+            self.assertTrue(previous_price <= ask_row.price)
+            previous_price = ask_row.price
+
+        # 6 - test that total volume in first   orders in book is less than 10 times
+        # daily traded volumes for this exchange
+        total_volume = 0
+        count = 0
+        for bid_row in sut_book.bid_entries():
+            total_volume += bid_row.amount
+            count += 1
+            if count > self.book_enties:
+                break
+        count = 0
+        for ask_row in sut_book.ask_entries():
+            total_volume += ask_row.amount
+            count += 1
+            if count > self.book_enties:
+                break
+        self.assertLessEqual(total_volume, 10 * self.daily_volume)
 
 
 def main():
