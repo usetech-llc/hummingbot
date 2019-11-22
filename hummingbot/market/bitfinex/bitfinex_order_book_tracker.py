@@ -104,10 +104,10 @@ class BitfinexOrderBookTracker(OrderBookTracker):
                 if not self._tracking_tasks[key].done()
             ]
         )
-
         available_pairs: TRACKER_TYPE = await self.data_source.get_tracking_pairs()
         available_symbols: Set[str] = set(available_pairs.keys())
         new_symbols: Set[str] = available_symbols - tracking_symbols
+
         deleted_symbols: Set[str] = tracking_symbols - available_symbols
 
         for symbol in new_symbols:
@@ -177,6 +177,24 @@ class BitfinexOrderBookTracker(OrderBookTracker):
                 )
                 await asyncio.sleep(self.EXCEPTION_TIME_SLEEP)
 
+    def _convert_diff_message_to_order_book_row(self, message):
+        """
+        Convert an incoming diff message to Tuple of np.arrays, and then convert to OrderBookRow
+        :returns: Tuple(List[bids_row], List[asks_row])
+        """
+        bids = [message.content["bids"]] if "bids" in message.content else []
+        asks = [message.content["asks"]] if "asks" in message.content else []
+        return bids, asks
+
+    # def _convert_snapshot_message_to_order_book_row(self, message):
+    #     """
+    #     Convert an incoming snapshot message to Tuple of np.arrays, and then convert to OrderBookRow
+    #     :returns: Tuple(List[bids_row], List[asks_row])
+    #     """
+    #     bids = [message.content["bids"]] if "bids" in message.content else []
+    #     asks = [message.content["asks"]] if "asks" in message.content else []
+    #     return bids, asks
+
     async def _track_single_book(self, symbol: str):
         past_diffs_window: Deque[BitfinexOrderBookMessage] = deque()
         self._past_diffs_windows[symbol] = past_diffs_window
@@ -198,10 +216,10 @@ class BitfinexOrderBookTracker(OrderBookTracker):
                     message = await message_queue.get()
 
                 if message.type is OrderBookMessageType.DIFF:
-                    bids, asks = active_order_tracker.convert_diff_message_to_order_book_row(message)
+                    bids, asks = self._convert_diff_message_to_order_book_row(message)
                     order_book.apply_diffs(bids, asks, message.update_id)
-                    past_diffs_window.append(message)
 
+                    past_diffs_window.append(message)
                     while len(past_diffs_window) > self.PAST_DIFF_WINDOW_SIZE:
                         past_diffs_window.popleft()
                     diff_messages_accepted += 1
@@ -226,7 +244,7 @@ class BitfinexOrderBookTracker(OrderBookTracker):
                     )
                     order_book.apply_snapshot(s_bids, s_asks, message.update_id)
                     for diff_message in replay_diffs:
-                        d_bids, d_asks = active_order_tracker.convert_diff_message_to_order_book_row(
+                        d_bids, d_asks = active_order_tracker.convert_snapshot_message_to_order_book_row(
                             diff_message
                         )
                         order_book.apply_diffs(d_bids, d_asks, diff_message.update_id)

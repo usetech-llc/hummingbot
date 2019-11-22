@@ -212,16 +212,6 @@ cdef class BitfinexActiveOrderTracker:
             dtype="float64"
         )
 
-    def convert_diff_message_to_order_book_row(self, message):
-        """
-        Convert an incoming diff message to Tuple of np.arrays, and then convert to OrderBookRow
-        :returns: Tuple(List[bids_row], List[asks_row])
-        """
-        np_bids, np_asks = self.c_convert_diff_message_to_np_arrays(message)
-        bids_row = [OrderBookRow(price, qty, update_id) for ts, price, qty, update_id in np_bids]
-        asks_row = [OrderBookRow(price, qty, update_id) for ts, price, qty, update_id in np_asks]
-        return bids_row, asks_row
-
     def convert_snapshot_message_to_order_book_row(self, message):
         """
         Convert an incoming snapshot message to Tuple of np.arrays, and then convert to OrderBookRow
