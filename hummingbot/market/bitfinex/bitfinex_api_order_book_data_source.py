@@ -38,6 +38,7 @@ BOOK_RET_TYPE = List[Dict[str, Any]]
 
 BITFINEX_REST_URL = "https://api-pub.bitfinex.com/v2"
 BITFINEX_WS_URI = "wss://api-pub.bitfinex.com/ws/2"
+BITFINEX_WS_AUTH_WS_URI = "wss://api.bitfinex.com/ws/2"
 
 RESPONSE_SUCCESS = 200
 NaN = float("nan")
@@ -198,12 +199,12 @@ class BitfinexAPIOrderBookDataSource(OrderBookTrackerDataSource):
 
     @staticmethod
     def _prepare_snapshot(pair: str, raw_snapshot: List[BookStructure]) -> Dict[str, Any]:
-        '''
+        """
         Return structure of three elements:
             symbol: traded pair symbol
             bids: List of OrderBookRow for bids
             asks: List of OrderBookRow for asks
-        '''
+        """
         bids = [OrderBookRow(i.price, i.amount, i.order_id) for i in raw_snapshot if i.amount > 0]
         asks = [OrderBookRow(i.price, abs(i.amount), i.order_id) for i in raw_snapshot if i.amount < 0]
 
@@ -216,11 +217,11 @@ class BitfinexAPIOrderBookDataSource(OrderBookTrackerDataSource):
     async def get_snapshot(self, client: aiohttp.ClientSession, trading_pair: str) -> Dict[str, Any]:
         request_url: str = f"{BITFINEX_REST_URL}/book/t{trading_pair}/R0"
 
-        async with client.get(request_url)as response:
+        async with client.get(request_url) as response:
             response: aiohttp.ClientResponse = response
 
             if response.status != RESPONSE_SUCCESS:
-                raise IOError(f"Error fetching Coinbase Pro market snapshot for {trading_pair}. "
+                raise IOError(f"Error fetching Bitfinex market snapshot for {trading_pair}. "
                               f"HTTP status is {response.status}.")
 
             raw_data: Dict[str, Any] = await response.json()
@@ -380,10 +381,10 @@ class BitfinexAPIOrderBookDataSource(OrderBookTrackerDataSource):
             timestamp=timestamp)
 
     def _parse_raw_update(self, pair: str, raw_response: str) -> OrderBookMessage:
-        '''
+        """
         Parses raw update, if price for a tracked order identified by ID is 0, then order is deleted
         Returns OrderBookMessage
-        '''
+        """
         _, content = ujson.loads(raw_response)
 
         if isinstance(content, list) and len(content) == 3:
