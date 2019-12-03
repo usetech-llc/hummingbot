@@ -92,7 +92,7 @@ cdef class BitfinexOrderBook(OrderBook):
         return OrderBookMessage(
             OrderBookMessageType.TRADE,
             {
-                "symbol": msg["symbol"],
+                "trading_pair": msg["symbol"],
                 "trade_type": float(trade_type.value),
                 "trade_id": msg["id"],
                 "update_id": timestamp,

@@ -316,7 +316,7 @@ class BitfinexAPIOrderBookDataSource(OrderBookTrackerDataSource):
                         if msg:
                             msg_book: OrderBookMessage = BitfinexOrderBook.trade_message_from_exchange(
                                 msg,
-                                metadata={"symbol": f"t{pair}"}
+                                metadata={"symbol": f"{pair}"}
                             )
                             output.put_nowait(msg_book)
             except asyncio.CancelledError:
