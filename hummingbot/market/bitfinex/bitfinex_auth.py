@@ -22,6 +22,22 @@ class BitfinexAuth:
         }
         return payload
 
+    def generate_api_headers(self, path, body):
+        """
+        Generate headers for a signed payload
+        """
+        nonce = str(self._make_nonce())
+        signature = "/api/" + path + nonce + body
+
+        sig = self._auth_sig(signature)
+
+        return {
+            "bfx-nonce": nonce,
+            "bfx-apikey": self.api_key,
+            "bfx-signature": sig,
+            "content-type": "application/json"
+        }
+
     # private methods
     def _make_nonce(self) -> int:
         nonce = int(round(time.time() * 1000000))

@@ -31,14 +31,11 @@ from hummingbot.core.data_type.order_book_message import (
 )
 from hummingbot.core.utils import async_ttl_cache
 from hummingbot.logger import HummingbotLogger
+from hummingbot.market.bitfinex import BITFINEX_REST_URL, BITFINEX_WS_URI
 from hummingbot.market.bitfinex.bitfinex_active_order_tracker import BitfinexActiveOrderTracker
 from hummingbot.market.bitfinex.bitfinex_order_book import BitfinexOrderBook
 
 BOOK_RET_TYPE = List[Dict[str, Any]]
-
-BITFINEX_REST_URL = "https://api-pub.bitfinex.com/v2"
-BITFINEX_WS_URI = "wss://api-pub.bitfinex.com/ws/2"
-BITFINEX_WS_AUTH_WS_URI = "wss://api.bitfinex.com/ws/2"
 
 RESPONSE_SUCCESS = 200
 NaN = float("nan")
@@ -70,9 +67,9 @@ class BitfinexAPIOrderBookDataSource(OrderBookTrackerDataSource):
             cls._logger = logging.getLogger(__name__)
         return cls._logger
 
-    def __init__(self, symbols: Optional[List[str]] = None):
+    def __init__(self, trading_pairs: Optional[List[str]] = None):
         super().__init__()
-        self._symbols: Optional[List[str]] = symbols
+        self._trading_pairs: Optional[List[str]] = trading_pairs
         # Dictionary that maps Order IDs to book enties (i.e. price, amount, and update_id the
         # way it is stored in Hummingbot order book, usually timestamp)
         self._tracked_book_entries: Dict[int, OrderBookRow] = {}
@@ -182,20 +179,20 @@ class BitfinexAPIOrderBookDataSource(OrderBookTrackerDataSource):
         :returns: A list of trading pairs defined by the market class,
         or all active trading pairs from the rest API
         """
-        if not self._symbols:
+        if not self._trading_pairs:
             try:
                 active_markets: pd.DataFrame = await self.get_active_exchange_markets()
-                self._symbols = active_markets.index.tolist()
+                self._trading_pairs = active_markets.index.tolist()
             except Exception:
                 msg = "Error getting active exchange information. Check network connection."
-                self._symbols = []
+                self._trading_pairs = []
                 self.logger().network(
                     f"Error getting active exchange information.",
                     exc_info=True,
                     app_warning_msg=msg
                 )
 
-        return self._symbols
+        return self._trading_pairs
 
     @staticmethod
     def _prepare_snapshot(pair: str, raw_snapshot: List[BookStructure]) -> Dict[str, Any]:

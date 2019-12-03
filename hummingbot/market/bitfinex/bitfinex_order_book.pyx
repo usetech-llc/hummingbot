@@ -49,6 +49,7 @@ cdef class BitfinexOrderBook(OrderBook):
                                    msg: Dict[str, any],
                                    timestamp: Optional[float] = None,
                                    metadata: Optional[Dict] = None) -> OrderBookMessage:
+        print("msg!!!!!!!!", msg)
         if metadata:
             msg.update(metadata)
         if "time" in msg:

@@ -173,6 +173,16 @@ global_config_map = {
                   prompt="Enter your Bittrex secret key >>> ",
                   required_if=using_exchange("bittrex"),
                   is_secure=True),
+    "bitfinex_api_key":
+        ConfigVar(key="bitfinex_api_key",
+                  prompt="Enter your Bitfinex API key >>> ",
+                  required_if=using_exchange("bitfinex"),
+                  is_secure=True),
+    "bitfinex_secret_key":
+        ConfigVar(key="bitfinex_secret_key",
+                  prompt="Enter your Bitfinex secret key >>> ",
+                  required_if=using_exchange("bitfinex"),
+                  is_secure=True),
     "wallet":
         ConfigVar(key="wallet",
                   prompt="Would you like to import an existing wallet or create a new wallet? (import/create) >>> ",

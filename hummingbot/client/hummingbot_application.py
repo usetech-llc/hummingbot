@@ -47,6 +47,7 @@ from hummingbot.notifier.telegram_notifier import TelegramNotifier
 from hummingbot.strategy.market_trading_pair_tuple import MarketTradingPairTuple
 from hummingbot.client.liquidity_bounty.bounty_utils import LiquidityBounty
 from hummingbot.market.markets_recorder import MarketsRecorder
+from hummingbot.market.bitfinex.bitfinex_market import BitfinexMarket
 
 
 s_logger = None
@@ -337,6 +338,16 @@ class HummingbotApplication(*commands):
                                        order_book_tracker_data_source_type=OrderBookTrackerDataSourceType.EXCHANGE_API,
                                        trading_pairs=trading_pairs,
                                        trading_required=self._trading_required)
+            elif market_name == "bitfinex":
+                bitfinex_api_key = global_config_map.get("bitfinex_api_key").value
+                bitfinex_secret_key = global_config_map.get("bitfinex_secret_key").value
+                market = BitfinexMarket(
+                    bitfinex_api_key,
+                    bitfinex_secret_key,
+                    order_book_tracker_data_source_type=OrderBookTrackerDataSourceType.EXCHANGE_API,
+                    trading_pairs=trading_pairs,
+                    trading_required=self._trading_required
+                )
             else:
                 raise ValueError(f"Market name {market_name} is invalid.")
 

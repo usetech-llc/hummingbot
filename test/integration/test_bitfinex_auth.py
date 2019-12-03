@@ -6,8 +6,8 @@ from typing import List
 import websockets
 
 import conf
-from market.bitfinex.bitfinex_api_order_book_data_source import BITFINEX_WS_AUTH_WS_URI
-from market.bitfinex.bitfinex_auth import BitfinexAuth
+from hummingbot.market.bitfinex import BITFINEX_WS_AUTH_URI
+from hummingbot.market.bitfinex.bitfinex_auth import BitfinexAuth
 
 
 class TestAuth(unittest.TestCase):
@@ -21,14 +21,13 @@ class TestAuth(unittest.TestCase):
 
     def test_auth(self):
         result: List[str] = self.ev_loop.run_until_complete(self.con_auth())
-        print(result)
         assert "serverId" in result
 
     # def test_wallet(self):
     #     result: List[str] = self.ev_loop.run_until_complete(self.con_wallet())
 
     async def con_auth(self):
-        async with websockets.connect(BITFINEX_WS_AUTH_WS_URI) as ws:
+        async with websockets.connect(BITFINEX_WS_AUTH_URI) as ws:
             ws: websockets.WebSocketClientProtocol = ws
             payload = self.auth.generate_auth_payload()
             await ws.send(json.dumps(payload))
@@ -42,7 +41,7 @@ class TestAuth(unittest.TestCase):
     #         "prec": 'R0',
     #         "symbol": 'tETHUSD'
     #     }
-    #     async with websockets.connect(BITFINEX_WS_AUTH_WS_URI) as ws:
+    #     async with websockets.connect(BITFINEX_WS_AUTH_URI) as ws:
     #         ws: websockets.WebSocketClientProtocol = ws
     #         auth_payload = self.auth.generate_auth_payload()
     #         await ws.send(json.dumps(auth_payload))

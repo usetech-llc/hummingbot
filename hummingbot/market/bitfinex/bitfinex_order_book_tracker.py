@@ -46,7 +46,7 @@ class BitfinexOrderBookTracker(OrderBookTracker):
 
     def __init__(self,
                  data_source_type: OrderBookTrackerDataSourceType = EXC_API,
-                 symbols: Optional[List[str]] = None):
+                 trading_pairs: Optional[List[str]] = None):
         super().__init__(data_source_type=data_source_type)
         self._order_book_diff_stream: asyncio.Queue = asyncio.Queue()
         self._order_book_snapshot_stream: asyncio.Queue = asyncio.Queue()
@@ -56,14 +56,14 @@ class BitfinexOrderBookTracker(OrderBookTracker):
         self._saved_message_queues: QUEUE_TYPE = defaultdict(
             lambda: deque(maxlen=SAVED_MESSAGES_QUEUE_SIZE)
         )
-        self._symbols: Optional[List[str]] = symbols
+        self._trading_pairs: Optional[List[str]] = trading_pairs
         self._active_order_trackers: TRACKER_TYPE = defaultdict(BitfinexActiveOrderTracker)
 
     @property
     def data_source(self) -> OrderBookTrackerDataSource:
         if not self._data_source:
             if self._data_source_type is EXC_API:
-                self._data_source = BitfinexAPIOrderBookDataSource(symbols=self._symbols)
+                self._data_source = BitfinexAPIOrderBookDataSource(trading_pairs=self._trading_pairs)
             else:
                 raise ValueError(f"data_source_type {self._data_source_type} is not supported.")
 
