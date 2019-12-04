@@ -18,7 +18,7 @@ from hummingbot.core.clock import (
 from hummingbot.core.event.event_logger import EventLogger
 from hummingbot.core.event.events import (
     MarketEvent,
-)
+    OrderType, TradeType, TradeFee)
 from hummingbot.core.utils.async_utils import (
     safe_ensure_future,
     safe_gather,
@@ -107,10 +107,9 @@ class BitfinexMarketUnitTest(unittest.TestCase):
         return self.ev_loop.run_until_complete(self.run_parallel_async(*tasks))
 
     def test_get_fee(self):
-        assert False
-        # limit_fee: TradeFee = self.market.get_fee("ETH", "USDC", OrderType.LIMIT, TradeType.BUY, 1, 1)
-        # self.assertGreater(limit_fee.percent, 0)
-        # self.assertEqual(len(limit_fee.flat_fees), 0)
-        # market_fee: TradeFee = self.market.get_fee("ETH", "USDC", OrderType.MARKET, TradeType.BUY, 1)
-        # self.assertGreater(market_fee.percent, 0)
-        # self.assertEqual(len(market_fee.flat_fees), 0)
+        limit_fee: TradeFee = self.market.get_fee("ETH", "USDC", OrderType.LIMIT, TradeType.BUY, 1, 1)
+        self.assertGreater(limit_fee.percent, 0)
+        self.assertEqual(len(limit_fee.flat_fees), 0)
+        market_fee: TradeFee = self.market.get_fee("ETH", "USDC", OrderType.MARKET, TradeType.BUY, 1)
+        self.assertGreater(market_fee.percent, 0)
+        self.assertEqual(len(market_fee.flat_fees), 0)

@@ -12,7 +12,7 @@ from libc.stdint cimport int64_t
 
 from hummingbot.core.data_type.order_book_tracker import OrderBookTrackerDataSourceType
 from hummingbot.core.data_type.transaction_tracker import TransactionTracker
-from hummingbot.core.event.events import MarketEvent
+from hummingbot.core.event.events import MarketEvent, TradeFee, OrderType
 from hummingbot.core.network_iterator import NetworkStatus
 from hummingbot.core.utils.async_utils import safe_ensure_future, safe_gather
 from hummingbot.logger import HummingbotLogger
@@ -155,6 +155,26 @@ cdef class BitfinexMarket(MarketBase):
                 self._account_balances) > 0 if self._trading_required else True,
             # "trading_rule_initialized": len(self._trading_rules) > 0 if self._trading_required else True
         }
+
+    cdef object c_get_fee(self,
+                          str base_currency,
+                          str quote_currency,
+                          object order_type,
+                          object order_side,
+                          object amount,
+                          object price):
+        """
+        *required
+        function to calculate fees for a particular order
+        :returns: TradeFee class that includes fee percentage and flat fees
+        """
+        # There is no API for checking user's fee tier
+        # Fee info from https://pro.coinbase.com/fees
+        cdef:
+            object maker_fee = Decimal("0.001")
+            object taker_fee = Decimal("0.002")
+
+        return TradeFee(percent=maker_fee if order_type is OrderType.LIMIT else taker_fee)
 
     async def _update_balances(self):
         """COINBASE_API_ENDPOINT
