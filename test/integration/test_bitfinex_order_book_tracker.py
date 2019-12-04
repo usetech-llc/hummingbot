@@ -37,7 +37,7 @@ class BitfinexOrderBookTrackerUnitTest(unittest.TestCase):
     def setUpClass(cls):
         cls.ev_loop: asyncio.BaseEventLoop = asyncio.get_event_loop()
         cls.order_book_tracker: BitfinexOrderBookTracker = BitfinexOrderBookTracker(
-            OrderBookTrackerDataSourceType.EXCHANGE_API, symbols=cls.trading_pairs)
+            OrderBookTrackerDataSourceType.EXCHANGE_API, trading_pairs=cls.trading_pairs)
         cls.order_book_tracker_task: asyncio.Task = safe_ensure_future(cls.order_book_tracker.start())
         cls.ev_loop.run_until_complete(cls.wait_til_tracker_ready())
 
