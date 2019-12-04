@@ -25,7 +25,7 @@ from hummingbot.market.bitfinex.bitfinex_order_book_tracker import \
     BitfinexOrderBookTracker
 from hummingbot.market.bitfinex.bitfinex_user_stream_tracker import \
     BitfinexUserStreamTracker
-
+from hummingbot.market.trading_rule import TradingRule
 
 s_logger = None
 s_decimal_0 = Decimal(0)
