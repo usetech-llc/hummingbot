@@ -347,8 +347,6 @@ cdef class BitfinexMarket(MarketBase):
         until better information is available.
         :return: Valid order amount in Decimal format
         """
-        cdef:
-            TradingRule trading_rule = self._trading_rules[trading_pair]
 
         global s_decimal_0
         global general_min_order_size
