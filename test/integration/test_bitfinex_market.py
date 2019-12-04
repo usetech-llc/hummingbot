@@ -114,3 +114,8 @@ class BitfinexMarketUnitTest(unittest.TestCase):
         # market_fee: TradeFee = self.market.get_fee("ETH", "USDC", OrderType.MARKET, TradeType.BUY, 1)
         # self.assertGreater(market_fee.percent, 0)
         # self.assertEqual(len(market_fee.flat_fees), 0)
+
+    def test_minimum_order_size(self):
+        amount = 0.001
+        quantized_amount = self.market.quantize_order_amount("ETHUSD", amount)
+        self.assertEqual(quantized_amount, 0)
