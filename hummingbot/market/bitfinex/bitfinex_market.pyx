@@ -29,7 +29,9 @@ from hummingbot.market.bitfinex.bitfinex_user_stream_tracker import \
 
 s_logger = None
 s_decimal_0 = Decimal(0)
-
+general_min_order_size = Decimal(0.05)
+general_max_order_size = Decimal(1e9)
+general_order_size_quantum = Decimal(0.01)
 
 cdef class BitfinexMarketTransactionTracker(TransactionTracker):
     # TODO: COIN-12, COIN-13, COIN-14
@@ -337,3 +339,28 @@ cdef class BitfinexMarket(MarketBase):
         if self._shared_client is None:
             self._shared_client = aiohttp.ClientSession()
         return self._shared_client
+
+    cdef object c_quantize_order_amount(self, str trading_pair, object amount, object price=s_decimal_0):
+        """
+        *required
+        Note: Bitfinex does not provide API for correct order sizing. Hardcoded 0.05 minimum and 0.01 precision
+        until better information is available.
+        :return: Valid order amount in Decimal format
+        """
+        cdef:
+            TradingRule trading_rule = self._trading_rules[trading_pair]
+
+        global s_decimal_0
+        global general_min_order_size
+        global general_order_size_quantum
+        quantized_amount = (amount // general_order_size_quantum) * general_order_size_quantum
+
+        # Check against min_order_size. If not passing either check, return 0.
+        if quantized_amount < general_min_order_size:
+            return s_decimal_0
+
+        # Check against max_order_size. If not passing either check, return 0.
+        if quantized_amount > general_max_order_size:
+            return s_decimal_0
+
+        return quantized_amount
