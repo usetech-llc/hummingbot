@@ -47,7 +47,6 @@ class OrderBookMessage(namedtuple("_OrderBookMessage", "type, content, timestamp
 
     @property
     def trading_pair(self) -> str:
-        print('self.content["trading_pair"]', self.content)
         return self.content["trading_pair"]
 
     @property

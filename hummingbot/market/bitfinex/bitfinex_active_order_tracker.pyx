@@ -121,8 +121,8 @@ cdef class BitfinexActiveOrderTracker:
         """
         cdef:
             object price
-            long order_id
-            long amount
+            double order_id
+            double amount
             dict order_dict
 
         # Refresh all order tracking.
