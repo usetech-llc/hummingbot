@@ -47,6 +47,7 @@ class OrderBookMessage(namedtuple("_OrderBookMessage", "type, content, timestamp
 
     @property
     def trading_pair(self) -> str:
+        print('self.content["trading_pair"]', self.content)
         return self.content["trading_pair"]
 
     @property
@@ -530,5 +531,5 @@ class BitfinexOrderBookMessage(OrderBookMessage):
         return self.content["trade_id"]
 
     @property
-    def symbol(self) -> str:
+    def trading_pair(self) -> str:
         return self.content["symbol"]

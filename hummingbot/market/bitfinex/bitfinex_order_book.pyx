@@ -84,6 +84,7 @@ cdef class BitfinexOrderBook(OrderBook):
 
     @classmethod
     def trade_message_from_exchange(cls, msg: Dict[str, Any], metadata: Optional[Dict] = None):
+        print("trade_message_from_exchange", msg)
         if metadata:
             msg.update(metadata)
 

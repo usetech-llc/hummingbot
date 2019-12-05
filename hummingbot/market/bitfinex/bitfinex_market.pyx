@@ -10,6 +10,7 @@ import aiohttp
 from libcpp cimport bool
 from libc.stdint cimport int64_t
 
+from hummingbot.core.data_type.order_book cimport OrderBook
 from hummingbot.core.data_type.order_book_tracker import OrderBookTrackerDataSourceType
 from hummingbot.core.data_type.transaction_tracker import TransactionTracker
 from hummingbot.core.event.events import MarketEvent, TradeFee, OrderType
@@ -25,7 +26,7 @@ from hummingbot.market.bitfinex.bitfinex_order_book_tracker import \
     BitfinexOrderBookTracker
 from hummingbot.market.bitfinex.bitfinex_user_stream_tracker import \
     BitfinexUserStreamTracker
-from hummingbot.market.trading_rule import TradingRule
+
 
 s_logger = None
 s_decimal_0 = Decimal(0)
@@ -142,6 +143,15 @@ cdef class BitfinexMarket(MarketBase):
         return all(self.status_dict.values())
 
     @property
+    def order_books(self) -> Dict[str, OrderBook]:
+        """
+        *required
+        Get mapping of all the order books that are being tracked.
+        :return: Dict[trading_pair : OrderBook]
+        """
+        return self._order_book_tracker.order_books
+
+    @property
     def status_dict(self) -> Dict[str]:
         """
         *required
@@ -150,9 +160,10 @@ cdef class BitfinexMarket(MarketBase):
         """
         print("self._trading_required", self._trading_required)
         print("self._account_balances", self._account_balances)
+        print("self._order_book_tracker.ready", self._order_book_tracker.ready)
 
         return {
-            # "order_books_initialized": self._order_book_tracker.ready,
+            "order_books_initialized": self._order_book_tracker.ready,
             "account_balance": len(
                 self._account_balances) > 0 if self._trading_required else True,
             # "trading_rule_initialized": len(self._trading_rules) > 0 if self._trading_required else True
@@ -171,7 +182,7 @@ cdef class BitfinexMarket(MarketBase):
         :returns: TradeFee class that includes fee percentage and flat fees
         """
         # There is no API for checking user's fee tier
-        # Fee info from https://pro.coinbase.com/fees
+        # Fee info from https://www.bitfinex.com/fees
         cdef:
             object maker_fee = Decimal("0.001")
             object taker_fee = Decimal("0.002")
@@ -179,8 +190,8 @@ cdef class BitfinexMarket(MarketBase):
         return TradeFee(percent=maker_fee if order_type is OrderType.LIMIT else taker_fee)
 
     async def _update_balances(self):
-        """COINBASE_API_ENDPOINT
-        Pulls the API for updated balancesCOINBASE_API_ENDPOINT
+        """
+        Pulls the API for updated balances
         """
         cdef:
             dict account_info
@@ -236,7 +247,7 @@ cdef class BitfinexMarket(MarketBase):
         if self._order_tracker_task is not None:
             self._stop_network()
         print("start_network^^ self._trading_required", self._trading_required)
-        # self._order_tracker_task = safe_ensure_future(self._order_book_tracker.start())
+        self._order_tracker_task = safe_ensure_future(self._order_book_tracker.start())
         if self._trading_required:
             self._status_polling_task = safe_ensure_future(self._status_polling_loop())
 
@@ -266,7 +277,7 @@ cdef class BitfinexMarket(MarketBase):
                 )
 
     async def _api_balance(self):
-        path_url = "v2/auth/r/wallets"
+        path_url = "auth/r/wallets"
         Wallet = collections.namedtuple('Wallet',
                                         'wallet_type currency balance unsettled_interest balance_available')
         account_balances = await self._api_private("post", path_url=path_url, data={})
@@ -278,7 +289,7 @@ cdef class BitfinexMarket(MarketBase):
         return wallets
 
     async def _api_platform_status(self):
-        path_url = "v2/platform/status"
+        path_url = "platform/status"
         platform_status = await self._api_public("get", path_url=path_url)
         print("platform_status", platform_status)
         return platform_status
@@ -288,7 +299,7 @@ cdef class BitfinexMarket(MarketBase):
                           path_url,
                           data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
 
-        url = f"{BITFINEX_REST_URL}{path_url}"
+        url = f"{BITFINEX_REST_URL}/{path_url}"
         req = await self._api_do_request(http_method, url, None, data)
         return req
 
@@ -297,13 +308,14 @@ cdef class BitfinexMarket(MarketBase):
                            path_url,
                            data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
 
-        url = f"{BITFINEX_REST_AUTH_URL}{path_url}"
+        url = f"{BITFINEX_REST_AUTH_URL}/{path_url}"
         print("path_url", path_url)
         data_str = json.dumps(data)
-        headers = self.bitfinex_auth.generate_api_headers(path_url, data_str)
-        print("requests.post('"+BITFINEX_REST_AUTH_URL + path_url +"'"+ ", headers=" + str(headers) + ", data=" + data_str + ", verify=True)")
+        #  because BITFINEX_REST_AUTH_URL already have v2  postfix, but v2 need
+        #  for generate right signature for path
+        headers = self.bitfinex_auth.generate_api_headers(f"v2/{path_url}", data_str)
+        print("requests.post('"+BITFINEX_REST_AUTH_URL + "/" +path_url +"'"+ ", headers=" + str(headers) + ", data=" + data_str + ", verify=True)")
 
-        print("headers", headers)
         req = await self._api_do_request(http_method=http_method,
                                          url=url,
                                          headers=headers,
@@ -362,3 +374,15 @@ cdef class BitfinexMarket(MarketBase):
             return s_decimal_0
 
         return quantized_amount
+
+    cdef OrderBook c_get_order_book(self, str trading_pair):
+        """
+        :returns: OrderBook for a specific trading pair
+        """
+        cdef:
+            dict order_books = self._order_book_tracker.order_books
+
+        print(order_books)
+        if trading_pair not in order_books:
+            raise ValueError(f"No order book exists for '{trading_pair}'.")
+        return order_books[trading_pair]

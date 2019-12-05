@@ -5,6 +5,7 @@ import os
 import sys
 import time
 import unittest
+from decimal import Decimal
 from os.path import join, realpath
 from typing import (
     List
@@ -21,7 +22,7 @@ from hummingbot.core.event.events import (
     OrderType,
     TradeType,
     TradeFee,
-)
+    BuyOrderCompletedEvent, OrderFilledEvent, BuyOrderCreatedEvent)
 from hummingbot.core.utils.async_utils import (
     safe_ensure_future,
     safe_gather,
@@ -57,7 +58,7 @@ class BitfinexMarketUnitTest(unittest.TestCase):
         cls.market: BitfinexMarket = BitfinexMarket(
             conf.bitfinex_api_key,
             conf.bitfinex_secret_key,
-            trading_pairs=["tBTCUSD", "tETHUSD"]
+            trading_pairs=["BTCUSD", "ETHUSD"]
         )
         print("Initializing Coinbase Pro market... this will take about a minute.")
         cls.ev_loop: asyncio.BaseEventLoop = asyncio.get_event_loop()
@@ -121,3 +122,33 @@ class BitfinexMarketUnitTest(unittest.TestCase):
         amount = 0.001
         quantized_amount = self.market.quantize_order_amount("ETHUSD", amount)
         self.assertEqual(quantized_amount, 0)
+
+    def test_limit_buy(self):
+        self.assertGreater(self.market.get_balance("ETH"), 0.04)
+        trading_pair = "ETHUSD"
+        amount: Decimal = Decimal('0.0002')
+        quantized_amount: Decimal = self.market.quantize_order_amount(trading_pair, amount)
+
+        current_bid_price: Decimal = self.market.get_price(trading_pair, True)
+        bid_price: Decimal = current_bid_price + Decimal('0.1') * current_bid_price
+        quantize_bid_price: Decimal = self.market.quantize_order_price(trading_pair, bid_price)
+
+        order_id = self.market.buy(trading_pair, quantized_amount, OrderType.LIMIT, quantize_bid_price)
+        [order_completed_event] = self.run_parallel(self.market_logger.wait_for(BuyOrderCompletedEvent))
+        order_completed_event: BuyOrderCompletedEvent = order_completed_event
+        trade_events: List[OrderFilledEvent] = [t for t in self.market_logger.event_log
+                                                if isinstance(t, OrderFilledEvent)]
+        base_amount_traded: Decimal = sum(t.amount for t in trade_events)
+        quote_amount_traded: Decimal = sum(t.amount * t.price for t in trade_events)
+
+        self.assertTrue([evt.order_type == OrderType.LIMIT for evt in trade_events])
+        self.assertEqual(order_id, order_completed_event.order_id)
+        self.assertAlmostEqual(quantized_amount, order_completed_event.base_asset_amount)
+        self.assertEqual("LTC", order_completed_event.base_asset)
+        self.assertEqual("ETH", order_completed_event.quote_asset)
+        self.assertAlmostEqual(base_amount_traded, order_completed_event.base_asset_amount)
+        self.assertAlmostEqual(quote_amount_traded, order_completed_event.quote_asset_amount)
+        self.assertTrue(any([isinstance(event, BuyOrderCreatedEvent) and event.order_id == order_id
+                             for event in self.market_logger.event_log]))
+        # Reset the logs
+        self.market_logger.clear()

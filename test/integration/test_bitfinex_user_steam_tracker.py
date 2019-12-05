@@ -35,7 +35,7 @@ class BitfinexUserStreamTrackerUnitTest(unittest.TestCase):
         cls.ev_loop: asyncio.BaseEventLoop = asyncio.get_event_loop()
         cls.bitfinex_auth = BitfinexAuth(conf.bitfinex_api_key,
                                          conf.bitfinex_secret_key)
-        cls.trading_pairs = ["tETHUSD"]
+        cls.trading_pairs = ["ETHUSD"]
         cls.user_stream_tracker: BitfinexUserStreamTracker = BitfinexUserStreamTracker(
             bitfinex_auth=cls.bitfinex_auth, trading_pairs=cls.trading_pairs)
         # cls.user_stream_tracker_task: asyncio.Task = safe_ensure_future(

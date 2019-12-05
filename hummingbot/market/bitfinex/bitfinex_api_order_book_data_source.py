@@ -213,6 +213,7 @@ class BitfinexAPIOrderBookDataSource(OrderBookTrackerDataSource):
 
     async def get_snapshot(self, client: aiohttp.ClientSession, trading_pair: str) -> Dict[str, Any]:
         request_url: str = f"{BITFINEX_REST_URL}/book/t{trading_pair}/R0"
+        print(request_url)
 
         async with client.get(request_url) as response:
             response: aiohttp.ClientResponse = response

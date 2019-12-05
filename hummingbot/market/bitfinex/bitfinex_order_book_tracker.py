@@ -74,6 +74,7 @@ class BitfinexOrderBookTracker(OrderBookTracker):
         return "bitfinex"
 
     async def start(self):
+        print("Bitfinex orderbook start")
         await super().start()
 
         self._order_book_trade_listener_task = safe_ensure_future(
@@ -98,33 +99,34 @@ class BitfinexOrderBookTracker(OrderBookTracker):
         )
 
     async def _refresh_tracking_tasks(self):
-        tracking_symbols: Set[str] = set(
+        print("bitfinext: _refresh_tracking_tasks")
+        tracking_trading_pair: Set[str] = set(
             [
                 key for key in self._tracking_tasks.keys()
                 if not self._tracking_tasks[key].done()
             ]
         )
         available_pairs: TRACKER_TYPE = await self.data_source.get_tracking_pairs()
-        available_symbols: Set[str] = set(available_pairs.keys())
-        new_symbols: Set[str] = available_symbols - tracking_symbols
+        available_trading_pair: Set[str] = set(available_pairs.keys())
+        new_trading_pair: Set[str] = available_trading_pair - tracking_trading_pair
 
-        deleted_symbols: Set[str] = tracking_symbols - available_symbols
+        deleted_trading_pair: Set[str] = tracking_trading_pair - available_trading_pair
 
-        for symbol in new_symbols:
-            order_book_tracker_entry: BitfinexOrderBookTrackerEntry = available_pairs[symbol]
-            self._active_order_trackers[symbol] = order_book_tracker_entry.active_order_tracker
-            self._order_books[symbol] = order_book_tracker_entry.order_book
-            self._tracking_message_queues[symbol] = asyncio.Queue()
-            self._tracking_tasks[symbol] = safe_ensure_future(self._track_single_book(symbol))
-            self.logger().info("Started order book tracking for %s.", symbol)
+        for trading_pair in new_trading_pair:
+            order_book_tracker_entry: BitfinexOrderBookTrackerEntry = available_pairs[trading_pair]
+            self._active_order_trackers[trading_pair] = order_book_tracker_entry.active_order_tracker
+            self._order_books[trading_pair] = order_book_tracker_entry.order_book
+            self._tracking_message_queues[trading_pair] = asyncio.Queue()
+            self._tracking_tasks[trading_pair] = safe_ensure_future(self._track_single_book(trading_pair))
+            self.logger().info("Started order book tracking for %s.", trading_pair)
 
-        for symbol in deleted_symbols:
-            self._tracking_tasks[symbol].cancel()
-            del self._tracking_tasks[symbol]
-            del self._order_books[symbol]
-            del self._active_order_trackers[symbol]
-            del self._tracking_message_queues[symbol]
-            self.logger().info("Stopped order book tracking for %s.", symbol)
+        for trading_pair in deleted_trading_pair:
+            self._tracking_tasks[trading_pair].cancel()
+            del self._tracking_tasks[trading_pair]
+            del self._order_books[trading_pair]
+            del self._active_order_trackers[trading_pair]
+            del self._tracking_message_queues[trading_pair]
+            self.logger().info("Stopped order book tracking for %s.", trading_pair)
 
     async def _order_book_diff_router(self):
         last_message_timestamp: float = time.time()
@@ -135,16 +137,16 @@ class BitfinexOrderBookTracker(OrderBookTracker):
         while True:
             try:
                 order_book_message: OrderBookMessage = await self._order_book_diff_stream.get()
-                symbol: str = order_book_message.symbol
+                trading_pair: str = order_book_message.trading_pair
 
-                if symbol not in self._tracking_message_queues:
+                if trading_pair not in self._tracking_message_queues:
                     messages_queued += 1
                     # Save diff messages received before snapshots are ready
-                    self._saved_message_queues[symbol].append(order_book_message)
+                    self._saved_message_queues[trading_pair].append(order_book_message)
                     continue
 
-                message_queue: asyncio.Queue = self._tracking_message_queues[symbol]
-                order_book: OrderBook = self._order_books[symbol]
+                message_queue: asyncio.Queue = self._tracking_message_queues[trading_pair]
+                order_book: OrderBook = self._order_books[trading_pair]
 
                 if order_book.snapshot_uid > order_book_message.update_id:
                     messages_rejected += 1
@@ -195,20 +197,20 @@ class BitfinexOrderBookTracker(OrderBookTracker):
     #     asks = [message.content["asks"]] if "asks" in message.content else []
     #     return bids, asks
 
-    async def _track_single_book(self, symbol: str):
+    async def _track_single_book(self, trading_pair: str):
         past_diffs_window: Deque[BitfinexOrderBookMessage] = deque()
-        self._past_diffs_windows[symbol] = past_diffs_window
+        self._past_diffs_windows[trading_pair] = past_diffs_window
 
-        message_queue: asyncio.Queue = self._tracking_message_queues[symbol]
-        order_book: BitfinexOrderBook = self._order_books[symbol]
-        active_order_tracker: BitfinexActiveOrderTracker = self._active_order_trackers[symbol]
+        message_queue: asyncio.Queue = self._tracking_message_queues[trading_pair]
+        order_book: BitfinexOrderBook = self._order_books[trading_pair]
+        active_order_tracker: BitfinexActiveOrderTracker = self._active_order_trackers[trading_pair]
 
         last_message_timestamp: float = time.time()
         diff_messages_accepted: int = 0
 
         while True:
             try:
-                saved_messages: Deque[BitfinexOrderBookMessage] = self._saved_message_queues[symbol]
+                saved_messages: Deque[BitfinexOrderBookMessage] = self._saved_message_queues[trading_pair]
 
                 if len(saved_messages) > 0:
                     message = saved_messages.popleft()
@@ -228,7 +230,7 @@ class BitfinexOrderBookTracker(OrderBookTracker):
                     now: float = time.time()
                     if int(now / CALC_STAT_MINUTE) > int(last_message_timestamp / CALC_STAT_MINUTE):
                         self.logger().debug(
-                            "Processed %d order book diffs for %s.", diff_messages_accepted, symbol)
+                            "Processed %d order book diffs for %s.", diff_messages_accepted, trading_pair)
                         diff_messages_accepted = 0
 
                     last_message_timestamp = now
@@ -249,13 +251,13 @@ class BitfinexOrderBookTracker(OrderBookTracker):
                         )
                         order_book.apply_diffs(d_bids, d_asks, diff_message.update_id)
 
-                    self.logger().debug("Processed order book snapshot for %s.", symbol)
+                    self.logger().debug("Processed order book snapshot for %s.", trading_pair)
             except asyncio.CancelledError:
                 raise
             except Exception as err:
                 self.logger().error("track single book", err)
                 self.logger().network(
-                    f"Unexpected error processing order book messages for {symbol}.",
+                    f"Unexpected error processing order book messages for {trading_pair}.",
                     exc_info=True,
                     app_warning_msg="Unexpected error processing order book messages. "
                                     f"Retrying after {int(self.EXCEPTION_TIME_SLEEP)} seconds."
