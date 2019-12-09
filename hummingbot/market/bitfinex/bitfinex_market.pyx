@@ -15,8 +15,16 @@ import conf
 from hummingbot.core.data_type.order_book cimport OrderBook
 from hummingbot.core.data_type.order_book_tracker import OrderBookTrackerDataSourceType
 from hummingbot.core.data_type.transaction_tracker import TransactionTracker
-from hummingbot.core.event.events import MarketEvent, TradeFee, OrderType, \
-    BuyOrderCreatedEvent, MarketOrderFailureEvent, TradeType, SellOrderCreatedEvent
+from hummingbot.core.event.events import (
+    BuyOrderCreatedEvent,
+    MarketEvent,
+    MarketOrderFailureEvent,
+    OrderCancelledEvent,
+    OrderType,
+    SellOrderCreatedEvent,
+    TradeFee,
+    TradeType,
+)
 from hummingbot.core.network_iterator import NetworkStatus
 from hummingbot.core.utils.async_utils import safe_ensure_future, safe_gather
 from hummingbot.logger import HummingbotLogger
@@ -173,8 +181,8 @@ cdef class BitfinexMarket(MarketBase):
         """
         print("self._trading_required", self._trading_required)
         print("self._account_balances", self._account_balances)
-        print("self._trading_rules", self._trading_rules)
-        print("self._order_book_tracker.ready", self._order_book_tracker.ready)
+        # print("self._trading_rules", self._trading_rules)
+        # print("self._order_book_tracker.ready", self._order_book_tracker.ready)
 
         return {
             "order_books_initialized": self._order_book_tracker.ready,
@@ -342,6 +350,7 @@ cdef class BitfinexMarket(MarketBase):
                           data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
 
         url = f"{BITFINEX_REST_URL}/{path_url}"
+        print("Fetching " + url)
         req = await self._api_do_request(http_method, url, None, data)
         return req
 
@@ -383,6 +392,7 @@ cdef class BitfinexMarket(MarketBase):
             data = await response.json()
             print("DATA", data)
             if response.status != 200:
+                print(f"ERROR, status is not 200: {response.status}")
                 raise IOError(
                     f"Error fetching data from {url}. HTTP status is {response.status}. {data}")
             return data
@@ -406,7 +416,7 @@ cdef class BitfinexMarket(MarketBase):
 
         # Coinbase Pro is using the min_order_size as max_precision
         # Order size must be a multiple of the min_order_size
-        print("self._trading_rules[trading_pair]", self._trading_rules, trading_pair)
+        # print("self._trading_rules[trading_pair]", self._trading_rules, trading_pair)
         return trading_rule.min_order_size
 
     cdef object c_quantize_order_amount(self, str trading_pair, object amount, object price=s_decimal_0):
@@ -469,8 +479,8 @@ cdef class BitfinexMarket(MarketBase):
         Get the minimum increment interval for price
         :return: Min order price increment in Decimal format
         """
-        print("self._trading_rules->", self._trading_rules)
-        print("self.trading_pair->", trading_pair)
+        # print("self._trading_rules->", self._trading_rules)
+        # print("self.trading_pair->", trading_pair)
         cdef:
             TradingRule trading_rule = self._trading_rules[trading_pair]
         return trading_rule.min_price_increment
@@ -601,7 +611,6 @@ cdef class BitfinexMarket(MarketBase):
             order_result = await self.place_order(order_id, trading_pair,
                                                   decimal_amount, True, order_type,
                                                   decimal_price)
-
             exchange_order_id = order_result["id"]
             tracked_order = self._in_flight_orders.get(order_id)
             if tracked_order is not None:
@@ -682,12 +691,23 @@ cdef class BitfinexMarket(MarketBase):
             self.c_start_tracking_order(order_id, trading_pair, order_type, TradeType.SELL, decimal_price, decimal_amount)
             order_result = await self.place_order(order_id, trading_pair, decimal_amount, False, order_type, decimal_price)
 
-            exchange_order_id = order_result["id"]
-            tracked_order = self._in_flight_orders.get(order_id)
-            if tracked_order is not None:
-                self.logger().info(f"Created {order_type} sell order {order_id} for {decimal_amount} {trading_pair}.")
-                tracked_order.update_exchange_order_id(exchange_order_id)
+            print("----------------------------- DEBUG 2 ------------------------ ")
+            print(order_result)
 
+            exchange_order_id = order_result[4][0]
+            tracked_order = self._in_flight_orders.get(order_id)
+
+            print("----------------------------- DEBUG 1 ------------------------ ")
+            print(tracked_order)
+
+            if tracked_order is not None:
+                print("----------------------------- DEBUG 3 ------------------------ ")
+                self.logger().info(f"Created {order_type} sell order {order_id} for {decimal_amount} {trading_pair}.")
+                print("----------------------------- DEBUG 4 ------------------------ ")
+                tracked_order.update_exchange_order_id(exchange_order_id)
+                print("----------------------------- DEBUG 5 ------------------------ ")
+
+            print("----------------------------- DEBUG 6 ------------------------ ")
             self.c_trigger_event(self.MARKET_SELL_ORDER_CREATED_EVENT_TAG,
                                  SellOrderCreatedEvent(self._current_timestamp,
                                                        order_type,
@@ -695,6 +715,8 @@ cdef class BitfinexMarket(MarketBase):
                                                        decimal_amount,
                                                        decimal_price,
                                                        order_id))
+            print("----------------------------- SellOrderCreatedEvent EVENT TRIGGERED ------------------------ ")
+
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -709,3 +731,58 @@ cdef class BitfinexMarket(MarketBase):
             )
             self.c_trigger_event(self.MARKET_ORDER_FAILURE_EVENT_TAG,
                                  MarketOrderFailureEvent(self._current_timestamp, order_id, order_type))
+
+    async def execute_cancel(self, trading_pair: str, order_id: str):
+        """
+        Function that makes API request to cancel an active order
+        """
+        try:
+            exchange_order_id = await self._in_flight_orders.get(order_id).get_exchange_order_id()
+            path_url = "auth/w/order/cancel/{exchange_order_id}"
+
+            data = {
+                "id": exchange_order_id
+            }
+
+            print("cancel_order->>", data)
+            cancel_result = await self._api_private("post", path_url=path_url, data=data)
+            # return order_result
+            print("------------------------------  cancel_result = " + cancel_result)
+
+            return order_id
+
+            '''
+            cancelled_id = await self._api_request("delete", path_url=path_url)
+            if cancelled_id == exchange_order_id:
+                self.logger().info(f"Successfully cancelled order {order_id}.")
+                self.c_stop_tracking_order(order_id)
+                self.c_trigger_event(self.MARKET_ORDER_CANCELLED_EVENT_TAG,
+                                     OrderCancelledEvent(self._current_timestamp, order_id))
+                return order_id
+            '''
+        except IOError as e:
+            if "order not found" in e.message:
+                # The order was never there to begin with. So cancelling it is a no-op but semantically successful.
+                self.logger().info(f"The order {order_id} does not exist on Coinbase Pro. No cancellation needed.")
+                self.c_stop_tracking_order(order_id)
+                self.c_trigger_event(self.MARKET_ORDER_CANCELLED_EVENT_TAG,
+                                     OrderCancelledEvent(self._current_timestamp, order_id))
+                return order_id
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            self.logger().network(
+                f"Failed to cancel order {order_id}: {str(e)}",
+                exc_info=True,
+                app_warning_msg=f"Failed to cancel the order {order_id} on Coinbase Pro. "
+                                f"Check API key and network connection."
+            )
+        return None
+
+    cdef c_cancel(self, str trading_pair, str order_id):
+        """
+        *required
+        Synchronous wrapper that schedules cancelling an order.
+        """
+        safe_ensure_future(self.execute_cancel(trading_pair, order_id))
+        return order_id

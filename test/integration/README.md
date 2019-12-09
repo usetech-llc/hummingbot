@@ -60,7 +60,7 @@ In this test we use stored order book to calculate cost of selling minimal trade
 * Cancel order
 
 ### Place sell limit order at considerable distance from best price
-* Place buy limit order
+* Place sell limit order
 * Wait until order is registered on exchange
 * Read orders - the order should be seen
 * Cancel order

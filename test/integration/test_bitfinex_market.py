@@ -22,8 +22,11 @@ from hummingbot.core.event.events import (
     OrderType,
     TradeType,
     TradeFee,
-    BuyOrderCompletedEvent, OrderFilledEvent, BuyOrderCreatedEvent,
-    SellOrderCompletedEvent, SellOrderCreatedEvent)
+    BuyOrderCompletedEvent,
+    OrderFilledEvent,
+    BuyOrderCreatedEvent,
+    # SellOrderCompletedEvent,
+    SellOrderCreatedEvent)
 from hummingbot.core.utils.async_utils import (
     safe_ensure_future,
     safe_gather,
@@ -61,7 +64,7 @@ class BitfinexMarketUnitTest(unittest.TestCase):
             conf.bitfinex_secret_key,
             trading_pairs=["BTCUSD", "ETHUSD"]
         )
-        print("Initializing Coinbase Pro market... this will take about a minute.")
+        print("Initializing Bitfinex market... this will take about a minute.")
         cls.ev_loop: asyncio.BaseEventLoop = asyncio.get_event_loop()
         cls.clock.add_iterator(cls.market)
         cls.stack = contextlib.ExitStack()
@@ -124,6 +127,11 @@ class BitfinexMarketUnitTest(unittest.TestCase):
         quantized_amount = self.market.quantize_order_amount("ETHUSD", amount)
         self.assertEqual(quantized_amount, 0)
 
+    def test_get_balance(self):
+        balance = self.market.get_balance("ETH")
+        print(balance)
+        self.assertGreater(balance, 0.04)
+
     def test_limit_buy(self):
         assert False
 
@@ -170,14 +178,35 @@ class BitfinexMarketUnitTest(unittest.TestCase):
         self.market_logger.clear()
 
     def test_limit_sell(self):
+        '''
+        Placing limit orders
+        Test that a limit sell order can be placed (far from best ask price) and canceled,
+        without waiting for order completion
+        '''
         trading_pair = "ETHUSD"
         amount: Decimal = Decimal("-0.04")
-        quantized_amount: Decimal = self.market.quantize_order_amount(trading_pair, amount)
+        # quantized_amount: Decimal = self.market.quantize_order_amount(trading_pair, amount)
         current_ask_price: Decimal = self.market.get_price(trading_pair, False)
         ask_price: Decimal = current_ask_price + Decimal("0.08") * current_ask_price
         quantize_ask_price: Decimal = self.market.quantize_order_price(trading_pair, ask_price)
 
         order_id = self.market.sell(trading_pair, amount, OrderType.LIMIT, quantize_ask_price)
+
+        print("")
+        print("------------------------------------------------- ORDER SENT -------------------------------------- ")
+        print("")
+
+        # Wait for order creation event
+        self.run_parallel(self.market_logger.wait_for(SellOrderCreatedEvent))
+
+        print("")
+        print("------------------------------------------ ORDER PLACED IN THE EXCHANGE ------------------------- ")
+        print("")
+
+        # Cancel order. Automatically asserts that order is tracked
+        self.market.cancel(trading_pair, order_id)
+
+        '''
         [order_completed_event] = self.run_parallel(self.market_logger.wait_for(SellOrderCompletedEvent))
         order_completed_event: SellOrderCompletedEvent = order_completed_event
         trade_events = [t for t in self.market_logger.event_log if isinstance(t, OrderFilledEvent)]
@@ -189,7 +218,7 @@ class BitfinexMarketUnitTest(unittest.TestCase):
               "quote_amount_traded {}".format(trade_events,
                                               base_amount_traded,
                                               quote_amount_traded))
-        time.sleep(30)
+        time.sleep(10)
         self.assertTrue([evt.order_type == OrderType.LIMIT for evt in trade_events])
         self.assertEqual(order_id, order_completed_event.order_id)
         self.assertAlmostEqual(quantized_amount, order_completed_event.base_asset_amount)
@@ -199,5 +228,6 @@ class BitfinexMarketUnitTest(unittest.TestCase):
         self.assertAlmostEqual(quote_amount_traded, order_completed_event.quote_asset_amount)
         self.assertTrue(any([isinstance(event, SellOrderCreatedEvent) and event.order_id == order_id
                              for event in self.market_logger.event_log]))
+        '''
         # Reset the logs
         self.market_logger.clear()
