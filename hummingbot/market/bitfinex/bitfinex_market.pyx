@@ -2,18 +2,21 @@ import asyncio
 import collections
 import json
 import logging
+import time
 import traceback
 from decimal import Decimal
 from typing import Optional, List, Dict, Any
 
 import aiohttp
-from libcpp cimport bool
 from libc.stdint cimport int64_t
+from libcpp cimport bool
 
+import conf
 from hummingbot.core.data_type.order_book cimport OrderBook
 from hummingbot.core.data_type.order_book_tracker import OrderBookTrackerDataSourceType
 from hummingbot.core.data_type.transaction_tracker import TransactionTracker
-from hummingbot.core.event.events import MarketEvent, TradeFee, OrderType
+from hummingbot.core.event.events import MarketEvent, TradeFee, OrderType, \
+    BuyOrderCreatedEvent, MarketOrderFailureEvent, TradeType, SellOrderCreatedEvent
 from hummingbot.core.network_iterator import NetworkStatus
 from hummingbot.core.utils.async_utils import safe_ensure_future, safe_gather
 from hummingbot.logger import HummingbotLogger
@@ -21,18 +24,28 @@ from hummingbot.market.bitfinex import (
     BITFINEX_REST_AUTH_URL,
     BITFINEX_REST_URL,
 )
+from hummingbot.market.market_base import (
+    MarketBase,
+    OrderType,
+)
 from hummingbot.market.bitfinex.bitfinex_auth import BitfinexAuth
+from hummingbot.market.bitfinex.bitfinex_in_flight_order import BitfinexInFlightOrder
+from hummingbot.market.bitfinex.bitfinex_in_flight_order cimport BitfinexInFlightOrder
 from hummingbot.market.bitfinex.bitfinex_order_book_tracker import \
     BitfinexOrderBookTracker
 from hummingbot.market.bitfinex.bitfinex_user_stream_tracker import \
     BitfinexUserStreamTracker
-
+from hummingbot.market.trading_rule cimport TradingRule
 
 s_logger = None
 s_decimal_0 = Decimal(0)
-general_min_order_size = Decimal(0.05)
+general_min_order_size = Decimal('0.05')
 general_max_order_size = Decimal(1e9)
-general_order_size_quantum = Decimal(0.01)
+general_order_size_quantum = Decimal(conf.bitfinex_quote_increment)
+
+Wallet = collections.namedtuple('Wallet',
+                                'wallet_type currency balance unsettled_interest balance_available')
+
 
 cdef class BitfinexMarketTransactionTracker(TransactionTracker):
     # TODO: COIN-12, COIN-13, COIN-14
@@ -125,8 +138,8 @@ cdef class BitfinexMarket(MarketBase):
         This function is called frequently with every clock tick
         """
         cdef:
-            int64_t last_tick = <int64_t>(self._last_timestamp / self._poll_interval)
-            int64_t current_tick = <int64_t>(timestamp / self._poll_interval)
+            int64_t last_tick = <int64_t> (self._last_timestamp / self._poll_interval)
+            int64_t current_tick = <int64_t> (timestamp / self._poll_interval)
 
         MarketBase.c_tick(self, timestamp)
         if current_tick > last_tick:
@@ -160,13 +173,15 @@ cdef class BitfinexMarket(MarketBase):
         """
         print("self._trading_required", self._trading_required)
         print("self._account_balances", self._account_balances)
+        print("self._trading_rules", self._trading_rules)
         print("self._order_book_tracker.ready", self._order_book_tracker.ready)
 
         return {
             "order_books_initialized": self._order_book_tracker.ready,
             "account_balance": len(
                 self._account_balances) > 0 if self._trading_required else True,
-            # "trading_rule_initialized": len(self._trading_rules) > 0 if self._trading_required else True
+            "trading_rule_initialized": len(
+                self._trading_rules) > 0 if self._trading_required else True
         }
 
     cdef object c_get_fee(self,
@@ -187,7 +202,8 @@ cdef class BitfinexMarket(MarketBase):
             object maker_fee = Decimal("0.001")
             object taker_fee = Decimal("0.002")
 
-        return TradeFee(percent=maker_fee if order_type is OrderType.LIMIT else taker_fee)
+        return TradeFee(
+            percent=maker_fee if order_type is OrderType.LIMIT else taker_fee)
 
     async def _update_balances(self):
         """
@@ -201,7 +217,7 @@ cdef class BitfinexMarket(MarketBase):
             set remote_asset_names = set()
             set asset_names_to_remove
 
-        print("_update_balances", )
+        print("_update_balances",)
 
         account_balances = await self._api_balance()
         print("<<-- account_balances", account_balances)
@@ -227,7 +243,7 @@ cdef class BitfinexMarket(MarketBase):
         *required
         Async function used by NetworkBase class to check if the market is online / offline.
         """
-        print("check_network", )
+        print("check_network",)
         try:
             await self._api_platform_status()
         except asyncio.CancelledError:
@@ -250,6 +266,8 @@ cdef class BitfinexMarket(MarketBase):
         self._order_tracker_task = safe_ensure_future(self._order_book_tracker.start())
         if self._trading_required:
             self._status_polling_task = safe_ensure_future(self._status_polling_loop())
+            self._trading_rules_polling_task = safe_ensure_future(
+                self._trading_rules_polling_loop())
 
     async def _status_polling_loop(self):
         """
@@ -276,10 +294,28 @@ cdef class BitfinexMarket(MarketBase):
                     app_warning_msg=f"Could not fetch account updates on Bitfinex. "
                 )
 
+    async def _trading_rules_polling_loop(self):
+        """
+        Separate background process that periodically pulls for trading rule changes
+        (Since trading rules don't get updated often, it is pulled less often.)
+        """
+        while True:
+            try:
+                await safe_gather(self._update_trading_rules())
+                await asyncio.sleep(60)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                self.logger().network(
+                    "Unexpected error while fetching trading rules.",
+                    exc_info=True,
+                    app_warning_msg=f"Could not fetch trading rule updates on Bitfinex. "
+                                    f"Check network connection."
+                )
+                await asyncio.sleep(0.5)
+
     async def _api_balance(self):
         path_url = "auth/r/wallets"
-        Wallet = collections.namedtuple('Wallet',
-                                        'wallet_type currency balance unsettled_interest balance_available')
         account_balances = await self._api_private("post", path_url=path_url, data={})
         print("-->account_balances", account_balances)
         wallets = []
@@ -294,6 +330,12 @@ cdef class BitfinexMarket(MarketBase):
         print("platform_status", platform_status)
         return platform_status
 
+    async def _api_platform_config_pair_info(self):
+        path_url = "conf/pub:info:pair"
+        info = await self._api_public("get", path_url=path_url)
+        print("platform_config_pair_info", info)
+        return info[0] if len(info) > 0 else 0
+
     async def _api_public(self,
                           http_method: str,
                           path_url,
@@ -306,7 +348,7 @@ cdef class BitfinexMarket(MarketBase):
     async def _api_private(self,
                            http_method: str,
                            path_url,
-                           data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+                           data: Optional[Dict[Any]] = None) -> Dict[Any]:
 
         url = f"{BITFINEX_REST_AUTH_URL}/{path_url}"
         print("path_url", path_url)
@@ -336,7 +378,8 @@ cdef class BitfinexMarket(MarketBase):
         client = await self._http_client()
         print("url, headers, ", url, headers, data_str)
         async with client.request(http_method,
-                                  url=url, timeout=self.API_CALL_TIMEOUT, json=data_str, headers=headers) as response:
+                                  url=url, timeout=self.API_CALL_TIMEOUT, json=data_str,
+                                  headers=headers) as response:
             data = await response.json()
             print("DATA", data)
             if response.status != 200:
@@ -352,6 +395,20 @@ cdef class BitfinexMarket(MarketBase):
             self._shared_client = aiohttp.ClientSession()
         return self._shared_client
 
+    cdef object c_get_order_size_quantum(self, str trading_pair, object order_size):
+        """
+        *required
+        Get the minimum increment interval for order size (e.g. 0.01 USD)
+        :return: Min order size increment in Decimal format
+        """
+        cdef:
+            TradingRule trading_rule = self._trading_rules[trading_pair]
+
+        # Coinbase Pro is using the min_order_size as max_precision
+        # Order size must be a multiple of the min_order_size
+        print("self._trading_rules[trading_pair]", self._trading_rules, trading_pair)
+        return trading_rule.min_order_size
+
     cdef object c_quantize_order_amount(self, str trading_pair, object amount, object price=s_decimal_0):
         """
         *required
@@ -360,17 +417,36 @@ cdef class BitfinexMarket(MarketBase):
         :return: Valid order amount in Decimal format
         """
 
+        # global s_decimal_0
+        # global general_min_order_size
+        # global general_order_size_quantum
+        # quantized_amount = (amount // general_order_size_quantum) * general_order_size_quantum
+        #
+        # print("calculate_quantized_amount", quantized_amount, amount, general_order_size_quantum, general_min_order_size)
+        # # Check against min_order_size. If not passing either check, return 0.
+        # if quantized_amount < general_min_order_size:
+        #     return s_decimal_0
+        #
+        # # Check against max_order_size. If not passing either check, return 0.
+        # if quantized_amount > general_max_order_size:
+        #     return s_decimal_0
+        #
+        # print("quantized_amount-->", quantized_amount)
+        # return quantized_amount
+        cdef:
+            TradingRule trading_rule = self._trading_rules[trading_pair]
+
         global s_decimal_0
-        global general_min_order_size
-        global general_order_size_quantum
-        quantized_amount = (amount // general_order_size_quantum) * general_order_size_quantum
+
+        print("trading_pair, amount::", trading_pair, amount)
+        quantized_amount = MarketBase.c_quantize_order_amount(self, trading_pair, amount)
 
         # Check against min_order_size. If not passing either check, return 0.
-        if quantized_amount < general_min_order_size:
+        if quantized_amount < trading_rule.min_order_size:
             return s_decimal_0
 
         # Check against max_order_size. If not passing either check, return 0.
-        if quantized_amount > general_max_order_size:
+        if quantized_amount > trading_rule.max_order_size:
             return s_decimal_0
 
         return quantized_amount
@@ -386,3 +462,250 @@ cdef class BitfinexMarket(MarketBase):
         if trading_pair not in order_books:
             raise ValueError(f"No order book exists for '{trading_pair}'.")
         return order_books[trading_pair]
+
+    cdef object c_get_order_price_quantum(self, str trading_pair, object price):
+        """
+        *required
+        Get the minimum increment interval for price
+        :return: Min order price increment in Decimal format
+        """
+        print("self._trading_rules->", self._trading_rules)
+        print("self.trading_pair->", trading_pair)
+        cdef:
+            TradingRule trading_rule = self._trading_rules[trading_pair]
+        return trading_rule.min_price_increment
+
+    async def _update_trading_rules(self):
+        """
+        Pulls the API for trading rules (min / max order size, etc)
+        """
+        cdef:
+            # The poll interval for withdraw rules is 60 seconds.
+            int64_t last_tick = <int64_t> (self._last_timestamp / 60.0)
+            int64_t current_tick = <int64_t> (self._current_timestamp / 60.0)
+
+        if current_tick > last_tick or len(self._trading_rules) <= 0:
+            info = await self._api_platform_config_pair_info()
+            trading_rules_list = self._format_trading_rules(info)
+            self._trading_rules.clear()
+            for trading_rule in trading_rules_list:
+                self._trading_rules[trading_rule.trading_pair] = trading_rule
+
+    def _format_trading_rules(self, raw_trading_rules: List[Any]) -> List[TradingRule]:
+        """
+        Turns json data from API into TradingRule instances
+        :returns: List of TradingRule
+        """
+        cdef:
+            list retval = []
+        for rule in raw_trading_rules:
+            try:
+                trading_pair_id = rule[0]
+                retval.append(
+                    TradingRule(trading_pair_id,
+                                min_price_increment=Decimal(conf.bitfinex_quote_increment),
+                                min_order_size=Decimal(str(rule[1][3])),
+                                max_order_size=Decimal(str(rule[1][4]))))
+            except Exception:
+                self.logger().error(
+                    f"Error parsing the trading_pair rule {rule}. Skipping.",
+                    exc_info=True)
+        return retval
+
+    #  buy func
+    async def place_order(self,
+                          order_id: str,
+                          trading_pair: str,
+                          amount: Decimal,
+                          is_buy: bool,
+                          order_type: OrderType,
+                          price: Decimal):
+        """
+        Async wrapper for placing orders through the rest API.
+        :returns: json response from the API
+        """
+        path_url = "auth/w/order/submit"
+        data = {
+            "type": {
+                OrderType.LIMIT.name: "EXCHANGE LIMIT",
+                OrderType.MARKET.name: "MARKET",
+            }[order_type.name],  # LIMIT, EXCHANGE
+            "symbol": f't{trading_pair}',
+            "price": str(price),
+            "amount": str(amount),
+            "flags": 0,
+        }
+
+        print("place_order->>", data)
+        order_result = await self._api_private("post", path_url=path_url, data=data)
+        return order_result
+
+    cdef c_start_tracking_order(self,
+                                str client_order_id,
+                                str trading_pair,
+                                object order_type,
+                                object trade_type,
+                                object price,
+                                object amount):
+        """
+        Add new order to self._in_flight_orders mapping
+        """
+        self._in_flight_orders[client_order_id] = BitfinexInFlightOrder(
+            client_order_id,
+            None,
+            trading_pair,
+            order_type,
+            trade_type,
+            price,
+            amount,
+        )
+
+    cdef str c_buy(self, str trading_pair, object amount,
+                   object order_type=OrderType.MARKET, object price=s_decimal_0,
+                   dict kwargs={}):
+        """
+        *required
+        Synchronous wrapper that generates a client-side order ID and schedules the buy order.
+        """
+        cdef:
+            int64_t tracking_nonce = <int64_t> (time.time() * 1e6)
+            str order_id = str(f"buy-{trading_pair}-{tracking_nonce}")
+
+        safe_ensure_future(
+            self.execute_buy(order_id, trading_pair, amount, order_type, price))
+        return order_id
+
+    async def execute_buy(self,
+                          order_id: str,
+                          trading_pair: str,
+                          amount: Decimal,
+                          order_type: OrderType,
+                          price: Optional[Decimal] = s_decimal_0):
+        """
+        Function that takes strategy inputs, auto corrects itself with trading rule,
+        and submit an API request to place a buy order
+        """
+        cdef:
+            TradingRule trading_rule = self._trading_rules[trading_pair]
+
+        decimal_amount = self.quantize_order_amount(trading_pair, amount)
+        decimal_price = self.quantize_order_price(trading_pair, price)
+        if decimal_amount < trading_rule.min_order_size:
+            raise ValueError(
+                f"Buy order amount {decimal_amount} is lower than the minimum order size "
+                f"{trading_rule.min_order_size}.")
+
+        try:
+            self.c_start_tracking_order(order_id, trading_pair, order_type,
+                                        TradeType.BUY, decimal_price, decimal_amount)
+            order_result = await self.place_order(order_id, trading_pair,
+                                                  decimal_amount, True, order_type,
+                                                  decimal_price)
+
+            exchange_order_id = order_result["id"]
+            tracked_order = self._in_flight_orders.get(order_id)
+            if tracked_order is not None:
+                self.logger().info(
+                    f"Created {order_type} buy order {order_id} for {decimal_amount} {trading_pair}.")
+                tracked_order.update_exchange_order_id(exchange_order_id)
+
+            self.c_trigger_event(self.MARKET_BUY_ORDER_CREATED_EVENT_TAG,
+                                 BuyOrderCreatedEvent(self._current_timestamp,
+                                                      order_type,
+                                                      trading_pair,
+                                                      decimal_amount,
+                                                      decimal_price,
+                                                      order_id))
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            traceback.print_exc()
+            self.c_stop_tracking_order(order_id)
+            order_type_str = "MARKET" if order_type == OrderType.MARKET else "LIMIT"
+            self.logger().network(
+                f"Error submitting buy {order_type_str} order to Bitfinex for "
+                f"{decimal_amount} {trading_pair} {price}.",
+                exc_info=True,
+                app_warning_msg="Failed to submit buy order to Bitfinex. "
+                                "Check API key and network connection."
+            )
+            self.c_trigger_event(self.MARKET_ORDER_FAILURE_EVENT_TAG,
+                                 MarketOrderFailureEvent(self._current_timestamp,
+                                                         order_id, order_type))
+
+    cdef c_stop_tracking_order(self, str order_id):
+        """
+        Delete an order from self._in_flight_orders mapping
+        """
+        if order_id in self._in_flight_orders:
+            del self._in_flight_orders[order_id]
+
+    # sell
+    cdef str c_sell(self,
+                    str trading_pair,
+                    object amount,
+                    object order_type=OrderType.MARKET,
+                    object price=s_decimal_0,
+                    dict kwargs={}):
+        """
+        *required
+        Synchronous wrapper that generates a client-side order ID and schedules the sell order.
+        """
+        cdef:
+            int64_t tracking_nonce = <int64_t>(time.time() * 1e6)
+            str order_id = str(f"sell-{trading_pair}-{tracking_nonce}")
+        safe_ensure_future(self.execute_sell(order_id, trading_pair, amount, order_type, price))
+        return order_id
+
+    async def execute_sell(self,
+                           order_id: str,
+                           trading_pair: str,
+                           amount: Decimal,
+                           order_type: OrderType,
+                           price: Optional[Decimal] = s_decimal_0):
+        """
+        Function that takes strategy inputs, auto corrects itself with trading rule,
+        and submit an API request to place a sell order
+        """
+        cdef:
+            TradingRule trading_rule = self._trading_rules[trading_pair]
+
+        decimal_amount = self.quantize_order_amount(trading_pair, abs(amount))
+        decimal_price = self.quantize_order_price(trading_pair, price)
+        print("abs(decimal_amount)", decimal_amount)
+        if decimal_amount < trading_rule.min_order_size:
+            raise ValueError(f"Sell order amount {decimal_amount} is lower than the minimum order size "
+                             f"{trading_rule.min_order_size}.")
+
+        try:
+            decimal_amount *= -1
+            self.c_start_tracking_order(order_id, trading_pair, order_type, TradeType.SELL, decimal_price, decimal_amount)
+            order_result = await self.place_order(order_id, trading_pair, decimal_amount, False, order_type, decimal_price)
+
+            exchange_order_id = order_result["id"]
+            tracked_order = self._in_flight_orders.get(order_id)
+            if tracked_order is not None:
+                self.logger().info(f"Created {order_type} sell order {order_id} for {decimal_amount} {trading_pair}.")
+                tracked_order.update_exchange_order_id(exchange_order_id)
+
+            self.c_trigger_event(self.MARKET_SELL_ORDER_CREATED_EVENT_TAG,
+                                 SellOrderCreatedEvent(self._current_timestamp,
+                                                       order_type,
+                                                       trading_pair,
+                                                       decimal_amount,
+                                                       decimal_price,
+                                                       order_id))
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            self.c_stop_tracking_order(order_id)
+            order_type_str = "MARKET" if order_type == OrderType.MARKET else "LIMIT"
+            self.logger().network(
+                f"Error submitting sell {order_type_str} order to Bitfinex for "
+                f"{decimal_amount} {trading_pair} {price}.",
+                exc_info=True,
+                app_warning_msg="Failed to submit sell order to Bitfinex. "
+                                "Check API key and network connection."
+            )
+            self.c_trigger_event(self.MARKET_ORDER_FAILURE_EVENT_TAG,
+                                 MarketOrderFailureEvent(self._current_timestamp, order_id, order_type))

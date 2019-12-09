@@ -188,6 +188,7 @@ cdef class MarketBase(NetworkIterator):
 
     cdef object c_quantize_order_amount(self, str trading_pair, object amount, object price=s_decimal_NaN):
         order_size_quantum = self.c_get_order_size_quantum(trading_pair, amount)
+        print("c_quantize_order_amount->>", order_size_quantum, trading_pair, amount)
         return (amount // order_size_quantum) * order_size_quantum
 
     # ----------------------------------------------------------------------------------------------------------

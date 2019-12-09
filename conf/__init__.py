@@ -64,6 +64,7 @@ bittrex_secret_key = os.getenv("BITTREX_SECRET_KEY")
 # Bitfinex Tests
 bitfinex_api_key = os.getenv("BITFINEX_API_KEY")
 bitfinex_secret_key = os.getenv("BITFINEX_SECRET_KEY")
+bitfinex_quote_increment = os.getenv("BITFINEX_QUOTE_INCREMENT", "0.01")
 
 test_web3_provider_list = [os.getenv("WEB3_PROVIDER")]
 
