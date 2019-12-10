@@ -31,7 +31,7 @@ from hummingbot.logger import HummingbotLogger
 from hummingbot.market.bitfinex import (
     BITFINEX_REST_AUTH_URL,
     BITFINEX_REST_URL,
-)
+    SubmitOrder)
 from hummingbot.market.market_base import (
     MarketBase,
     OrderType,
@@ -611,7 +611,10 @@ cdef class BitfinexMarket(MarketBase):
             order_result = await self.place_order(order_id, trading_pair,
                                                   decimal_amount, True, order_type,
                                                   decimal_price)
-            exchange_order_id = order_result["id"]
+
+            exchange_order = SubmitOrder.parse(order_result[4][0])
+            exchange_order_id = exchange_order.oid
+
             tracked_order = self._in_flight_orders.get(order_id)
             if tracked_order is not None:
                 self.logger().info(
@@ -661,6 +664,7 @@ cdef class BitfinexMarket(MarketBase):
         Synchronous wrapper that generates a client-side order ID and schedules the sell order.
         """
         cdef:
+            # TODO: в доках используют time.time() надо разобратсья почему тут умножение
             int64_t tracking_nonce = <int64_t>(time.time() * 1e6)
             str order_id = str(f"sell-{trading_pair}-{tracking_nonce}")
         safe_ensure_future(self.execute_sell(order_id, trading_pair, amount, order_type, price))
@@ -691,19 +695,22 @@ cdef class BitfinexMarket(MarketBase):
             self.c_start_tracking_order(order_id, trading_pair, order_type, TradeType.SELL, decimal_price, decimal_amount)
             order_result = await self.place_order(order_id, trading_pair, decimal_amount, False, order_type, decimal_price)
 
-            print("----------------------------- DEBUG 2 ------------------------ ")
+            print("----------------------------- DEBUG 1 ------------------------ ")
             print(order_result)
 
-            exchange_order_id = order_result[4][0]
+            exchange_order = SubmitOrder.parse(order_result[4][0])
+            exchange_order_id = exchange_order.oid
+
             tracked_order = self._in_flight_orders.get(order_id)
 
-            print("----------------------------- DEBUG 1 ------------------------ ")
+            print("----------------------------- DEBUG 2 ------------------------ ")
             print(tracked_order)
 
             if tracked_order is not None:
                 print("----------------------------- DEBUG 3 ------------------------ ")
                 self.logger().info(f"Created {order_type} sell order {order_id} for {decimal_amount} {trading_pair}.")
                 print("----------------------------- DEBUG 4 ------------------------ ")
+                print("exchange_order_id->>", exchange_order_id)
                 tracked_order.update_exchange_order_id(exchange_order_id)
                 print("----------------------------- DEBUG 5 ------------------------ ")
 
