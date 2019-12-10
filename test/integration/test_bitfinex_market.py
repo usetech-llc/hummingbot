@@ -24,6 +24,7 @@ from hummingbot.core.event.events import (
     TradeFee,
     BuyOrderCreatedEvent,
     SellOrderCreatedEvent,
+    OrderCancelledEvent,
 )
 from hummingbot.core.utils.async_utils import (
     safe_ensure_future,
@@ -152,7 +153,13 @@ class BitfinexMarketUnitTest(unittest.TestCase):
         print("")
 
         # Cancel order. Automatically asserts that order is tracked
+        print("order_id: ", order_id)
+        time.sleep(5)
         self.market.cancel(trading_pair, order_id)
+        [order_cancelled_event] = self.run_parallel(self.market_logger.wait_for(OrderCancelledEvent))
+        self.assertEqual(order_cancelled_event.order_id, order_id)
+        print("------------------------------------------ ORDER CANCELLED ------------------------- ")
+
         #
         # self.assertGreater(self.market.get_balance("ETH"), 0.04)
         # trading_pair = "ETHUSD"
@@ -196,7 +203,7 @@ class BitfinexMarketUnitTest(unittest.TestCase):
         # # Reset the logs
         # self.market_logger.clear()
 
-    @unittest.skip("temporary")
+    # @unittest.skip("temporary")
     def test_limit_sell(self):
         '''
         Placing limit orders
@@ -224,8 +231,11 @@ class BitfinexMarketUnitTest(unittest.TestCase):
         print("")
 
         # Cancel order. Automatically asserts that order is tracked
+        print("order_id: ", order_id)
+        time.sleep(5)
         self.market.cancel(trading_pair, order_id)
-
+        [order_cancelled_event] = self.run_parallel(self.market_logger.wait_for(OrderCancelledEvent))
+        self.assertEqual(order_cancelled_event.order_id, order_id)
         '''
         [order_completed_event] = self.run_parallel(self.market_logger.wait_for(SellOrderCompletedEvent))
         order_completed_event: SellOrderCompletedEvent = order_completed_event

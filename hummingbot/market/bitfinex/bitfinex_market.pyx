@@ -745,17 +745,19 @@ cdef class BitfinexMarket(MarketBase):
         """
         try:
             exchange_order_id = await self._in_flight_orders.get(order_id).get_exchange_order_id()
-            path_url = "auth/w/order/cancel/{exchange_order_id}"
+            path_url = "auth/w/order/cancel"
 
             data = {
-                "id": exchange_order_id
+                "id": int(exchange_order_id)
             }
 
             print("cancel_order->>", data)
             cancel_result = await self._api_private("post", path_url=path_url, data=data)
-            # return order_result
-            print("------------------------------  cancel_result = " + cancel_result)
-
+            # return order_id
+            self.logger().info(f"Successfully cancelled order {order_id}.")
+            self.c_stop_tracking_order(order_id)
+            self.c_trigger_event(self.MARKET_ORDER_CANCELLED_EVENT_TAG,
+                                 OrderCancelledEvent(self._current_timestamp, order_id))
             return order_id
 
             '''
@@ -768,6 +770,7 @@ cdef class BitfinexMarket(MarketBase):
                 return order_id
             '''
         except IOError as e:
+            traceback.print_exc()
             if "order not found" in e.message:
                 # The order was never there to begin with. So cancelling it is a no-op but semantically successful.
                 self.logger().info(f"The order {order_id} does not exist on Coinbase Pro. No cancellation needed.")
@@ -778,10 +781,11 @@ cdef class BitfinexMarket(MarketBase):
         except asyncio.CancelledError:
             raise
         except Exception as e:
+            traceback.print_exc()
             self.logger().network(
                 f"Failed to cancel order {order_id}: {str(e)}",
                 exc_info=True,
-                app_warning_msg=f"Failed to cancel the order {order_id} on Coinbase Pro. "
+                app_warning_msg=f"Failed to cancel the order {order_id} on Bitfinex. "
                                 f"Check API key and network connection."
             )
         return None
