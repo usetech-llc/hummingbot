@@ -55,7 +55,7 @@ cdef class BitfinexOrderBook(OrderBook):
         if "time" in msg:
             msg_time = pd.Timestamp(msg["time"]).timestamp()
 
-        msg.update(type=str(OrderBookMessageType.DIFF.value))
+        # msg.update(type=str(OrderBookMessageType.DIFF.value))
         return BitfinexOrderBookMessage(
             message_type=OrderBookMessageType.DIFF,
             content=msg,

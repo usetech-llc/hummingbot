@@ -25,7 +25,7 @@ from hummingbot.core.event.events import (
     BuyOrderCreatedEvent,
     SellOrderCreatedEvent,
     OrderCancelledEvent,
-)
+    BuyOrderCompletedEvent, OrderFilledEvent, SellOrderCompletedEvent)
 from hummingbot.core.utils.async_utils import (
     safe_ensure_future,
     safe_gather,
@@ -114,10 +114,12 @@ class BitfinexMarketUnitTest(unittest.TestCase):
         return self.ev_loop.run_until_complete(self.run_parallel_async(*tasks))
 
     def test_get_fee(self):
-        limit_fee: TradeFee = self.market.get_fee("ETH", "USDC", OrderType.LIMIT, TradeType.BUY, 1, 1)
+        limit_fee: TradeFee = self.market.get_fee("ETH", "USDC", OrderType.LIMIT,
+                                                  TradeType.BUY, 1, 1)
         self.assertGreater(limit_fee.percent, 0)
         self.assertEqual(len(limit_fee.flat_fees), 0)
-        market_fee: TradeFee = self.market.get_fee("ETH", "USDC", OrderType.MARKET, TradeType.BUY, 1)
+        market_fee: TradeFee = self.market.get_fee("ETH", "USDC", OrderType.MARKET,
+                                                   TradeType.BUY, 1)
         self.assertGreater(market_fee.percent, 0)
         self.assertEqual(len(market_fee.flat_fees), 0)
 
@@ -131,34 +133,41 @@ class BitfinexMarketUnitTest(unittest.TestCase):
         print(balance)
         self.assertGreater(balance, 0.04)
 
+    @unittest.skip("temporary")
     def test_limit_buy(self):
         trading_pair = "ETHUSD"
         amount: Decimal = Decimal("0.04")
         # quantized_amount: Decimal = self.market.quantize_order_amount(trading_pair, amount)
         current_ask_price: Decimal = self.market.get_price(trading_pair, False)
         ask_price: Decimal = current_ask_price - Decimal("0.08") * current_ask_price
-        quantize_ask_price: Decimal = self.market.quantize_order_price(trading_pair, ask_price)
+        quantize_ask_price: Decimal = self.market.quantize_order_price(trading_pair,
+                                                                       ask_price)
 
-        order_id = self.market.buy(trading_pair, amount, OrderType.LIMIT, quantize_ask_price)
+        order_id = self.market.buy(trading_pair, amount, OrderType.LIMIT,
+                                   quantize_ask_price)
 
         print("")
-        print("------------------------------------------------- ORDER SENT -------------------------------------- ")
+        print(
+            "------------------------------------------------- ORDER SENT -------------------------------------- ")
         print("")
 
         # Wait for order creation event
         self.run_parallel(self.market_logger.wait_for(BuyOrderCreatedEvent))
 
         print("")
-        print("------------------------------------------ ORDER PLACED IN THE EXCHANGE ------------------------- ")
+        print(
+            "------------------------------------------ ORDER PLACED IN THE EXCHANGE ------------------------- ")
         print("")
 
         # Cancel order. Automatically asserts that order is tracked
         print("order_id: ", order_id)
         time.sleep(5)
         self.market.cancel(trading_pair, order_id)
-        [order_cancelled_event] = self.run_parallel(self.market_logger.wait_for(OrderCancelledEvent))
+        [order_cancelled_event] = self.run_parallel(
+            self.market_logger.wait_for(OrderCancelledEvent))
         self.assertEqual(order_cancelled_event.order_id, order_id)
-        print("------------------------------------------ ORDER CANCELLED ------------------------- ")
+        print(
+            "------------------------------------------ ORDER CANCELLED ------------------------- ")
 
         #
         # self.assertGreater(self.market.get_balance("ETH"), 0.04)
@@ -201,9 +210,9 @@ class BitfinexMarketUnitTest(unittest.TestCase):
         # self.assertTrue(any([isinstance(event, BuyOrderCreatedEvent) and event.order_id == order_id
         #                      for event in self.market_logger.event_log]))
         # # Reset the logs
-        # self.market_logger.clear()
+        self.market_logger.clear()
 
-    # @unittest.skip("temporary")
+    @unittest.skip("temporary")
     def test_limit_sell(self):
         '''
         Placing limit orders
@@ -215,26 +224,31 @@ class BitfinexMarketUnitTest(unittest.TestCase):
         # quantized_amount: Decimal = self.market.quantize_order_amount(trading_pair, amount)
         current_ask_price: Decimal = self.market.get_price(trading_pair, False)
         ask_price: Decimal = current_ask_price + Decimal("0.08") * current_ask_price
-        quantize_ask_price: Decimal = self.market.quantize_order_price(trading_pair, ask_price)
+        quantize_ask_price: Decimal = self.market.quantize_order_price(trading_pair,
+                                                                       ask_price)
 
-        order_id = self.market.sell(trading_pair, amount, OrderType.LIMIT, quantize_ask_price)
+        order_id = self.market.sell(trading_pair, amount, OrderType.LIMIT,
+                                    quantize_ask_price)
 
         print("")
-        print("------------------------------------------------- ORDER SENT -------------------------------------- ")
+        print(
+            "------------------------------------------------- ORDER SENT -------------------------------------- ")
         print("")
 
         # Wait for order creation event
         self.run_parallel(self.market_logger.wait_for(SellOrderCreatedEvent))
 
         print("")
-        print("------------------------------------------ ORDER PLACED IN THE EXCHANGE ------------------------- ")
+        print(
+            "------------------------------------------ ORDER PLACED IN THE EXCHANGE ------------------------- ")
         print("")
 
         # Cancel order. Automatically asserts that order is tracked
         print("order_id: ", order_id)
         time.sleep(5)
         self.market.cancel(trading_pair, order_id)
-        [order_cancelled_event] = self.run_parallel(self.market_logger.wait_for(OrderCancelledEvent))
+        [order_cancelled_event] = self.run_parallel(
+            self.market_logger.wait_for(OrderCancelledEvent))
         self.assertEqual(order_cancelled_event.order_id, order_id)
         '''
         [order_completed_event] = self.run_parallel(self.market_logger.wait_for(SellOrderCompletedEvent))
@@ -261,3 +275,160 @@ class BitfinexMarketUnitTest(unittest.TestCase):
         '''
         # Reset the logs
         self.market_logger.clear()
+
+    # @unittest.skip("temporary")
+    def test_execute_limit_buy(self):
+        trading_pair = "ETHUSD"
+        amount: Decimal = Decimal("0.04")
+        quantized_amount: Decimal = self.market.quantize_order_amount(trading_pair,
+                                                                      amount)
+        # current_ask_price: Decimal = self.market.get_price(trading_pair, False)
+        # ask_price: Decimal = current_ask_price + Decimal("0.08") * current_ask_price
+        # quantize_bid_price: Decimal = \
+        #     self.market.quantize_order_price(trading_pair, ask_price)
+
+        # order_id = self.market.sell(trading_pair, amount, OrderType.LIMIT, quantize_ask_price)
+        bid_entries = self.market.order_books[trading_pair].bid_entries()
+        # for b_entry in self.market.order_books[trading_pair].bid_entries():
+        #     print(b_entry)
+        most_top_bid = next(bid_entries)
+        print("most_top_bid", most_top_bid)
+        bid_price: Decimal = Decimal(most_top_bid.price)
+        quantize_bid_price: Decimal = \
+            self.market.quantize_order_price(trading_pair, bid_price)
+
+        # order_id = self.market.buy(trading_pair, amount, OrderType.LIMIT,
+        #                            quantize_ask_price)
+
+        print("")
+        print(
+            "------------------------------------------------- ORDER SENT -------------------------------------- ")
+        print("")
+
+        # Wait for order creation event
+        # self.run_parallel(self.market_logger.wait_for(BuyOrderCreatedEvent))
+
+        print("")
+        print(
+            "------------------------------------------ ORDER PLACED IN THE EXCHANGE ------------------------- ")
+        print("")
+
+        # Cancel order. Automatically asserts that order is tracked
+        # print("order_id: ", order_id)
+        # time.sleep(5)
+        quantize_bid_price = quantize_bid_price - Decimal('0.05')
+        print("trading_pair, quantized_amount, OrderType.LIMIT, quantize_bid_price",
+              trading_pair, quantized_amount, OrderType.LIMIT, quantize_bid_price)
+        order_id = self.market.buy(trading_pair,
+                                   quantized_amount,
+                                   OrderType.LIMIT,
+                                   quantize_bid_price,
+                                   )
+
+        self.run_parallel(self.market_logger.wait_for(BuyOrderCreatedEvent))
+        print("BuyOrderCreatedEvent event happened")
+        [order_completed_event] = self.run_parallel(
+            self.market_logger.wait_for(BuyOrderCompletedEvent))
+        order_completed_event: BuyOrderCompletedEvent = order_completed_event
+        trade_events: List[OrderFilledEvent] = [t for t in self.market_logger.event_log
+                                                if isinstance(t, OrderFilledEvent)]
+        base_amount_traded: Decimal = sum(t.amount for t in trade_events)
+        quote_amount_traded: Decimal = sum(t.amount * t.price for t in trade_events)
+        print("-----------------")
+        print(base_amount_traded)
+        print(quote_amount_traded)
+        print(order_completed_event)
+        print(order_id)
+
+        # self.assertTrue([evt.order_type == OrderType.LIMIT for evt in trade_events])
+        # self.assertEqual(order_id, order_completed_event.order_id)
+        # self.assertAlmostEqual(quantized_amount,
+        #                        order_completed_event.base_asset_amount)
+        # self.assertEqual("LTC", order_completed_event.base_asset)
+        # self.assertEqual("ETH", order_completed_event.quote_asset)
+        # self.assertAlmostEqual(base_amount_traded,
+        #                        order_completed_event.base_asset_amount)
+        # self.assertAlmostEqual(quote_amount_traded,
+        #                        order_completed_event.quote_asset_amount)
+        # self.assertTrue(any([isinstance(event, BuyOrderCreatedEvent) and event.order_id == order_id
+        #                      for event in self.market_logger.event_log]))
+        # # Reset the logs
+        # self.market_logger.clear()
+
+    @unittest.skip("temporary")
+    def test_execute_limit_sell(self):
+        trading_pair = "ETHUSD"
+        amount: Decimal = Decimal("0.04")
+        quantized_amount: Decimal = self.market.quantize_order_amount(trading_pair,
+                                                                      amount)
+        # current_ask_price: Decimal = self.market.get_price(trading_pair, False)
+        # ask_price: Decimal = current_ask_price + Decimal("0.08") * current_ask_price
+        # quantize_bid_price: Decimal = \
+        #     self.market.quantize_order_price(trading_pair, ask_price)
+
+        # order_id = self.market.sell(trading_pair, amount, OrderType.LIMIT, quantize_ask_price)
+        ask_entries = self.market.order_books[trading_pair].ask_entries()
+        # for b_entry in self.market.order_books[trading_pair].bid_entries():
+        #     print(b_entry)
+        most_top_ask = next(ask_entries)
+        ask_price: Decimal = Decimal(most_top_ask.price - 0.01)
+        quantize_ask_price: Decimal = \
+            self.market.quantize_order_price(trading_pair, ask_price)
+        print("most_top_ask", most_top_ask, quantize_ask_price, ask_price)
+
+        # order_id = self.market.buy(trading_pair, amount, OrderType.LIMIT,
+        #                            quantize_ask_price)
+
+        print("")
+        print(
+            "------------------------------------------------- ORDER SENT -------------------------------------- ")
+        print("")
+
+        # Wait for order creation event
+        # self.run_parallel(self.market_logger.wait_for(BuyOrderCreatedEvent))
+
+        print("")
+        print(
+            "------------------------------------------ ORDER PLACED IN THE EXCHANGE ------------------------- ")
+        print("")
+
+        # Cancel order. Automatically asserts that order is tracked
+        # print("order_id: ", order_id)
+        # time.sleep(5)
+
+        print("trading_pair, quantized_amount, OrderType.LIMIT, quantize_bid_price",
+              trading_pair, quantized_amount, OrderType.LIMIT, quantize_ask_price)
+        order_id = self.market.sell(trading_pair,
+                                    quantized_amount,
+                                    OrderType.LIMIT,
+                                    quantize_ask_price,
+                                    )
+
+        self.run_parallel(self.market_logger.wait_for(SellOrderCreatedEvent))
+        [order_completed_event] = self.run_parallel(
+            self.market_logger.wait_for(SellOrderCompletedEvent))
+        order_completed_event: SellOrderCompletedEvent = order_completed_event
+        trade_events: List[OrderFilledEvent] = [t for t in self.market_logger.event_log
+                                                if isinstance(t, OrderFilledEvent)]
+        base_amount_traded: Decimal = sum(t.amount for t in trade_events)
+        quote_amount_traded: Decimal = sum(t.amount * t.price for t in trade_events)
+        print("-----------------")
+        print(base_amount_traded)
+        print(quote_amount_traded)
+        print(order_completed_event)
+        print(order_id)
+
+        # self.assertTrue([evt.order_type == OrderType.LIMIT for evt in trade_events])
+        # self.assertEqual(order_id, order_completed_event.order_id)
+        # self.assertAlmostEqual(quantized_amount,
+        #                        order_completed_event.base_asset_amount)
+        # self.assertEqual("LTC", order_completed_event.base_asset)
+        # self.assertEqual("ETH", order_completed_event.quote_asset)
+        # self.assertAlmostEqual(base_amount_traded,
+        #                        order_completed_event.base_asset_amount)
+        # self.assertAlmostEqual(quote_amount_traded,
+        #                        order_completed_event.quote_asset_amount)
+        # self.assertTrue(any([isinstance(event, BuyOrderCreatedEvent) and event.order_id == order_id
+        #                      for event in self.market_logger.event_log]))
+        # # Reset the logs
+        # self.market_logger.clear()

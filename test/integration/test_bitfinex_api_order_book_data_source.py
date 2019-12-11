@@ -24,7 +24,7 @@ class BitfinexAPIOrderBookDataSourceUnitTest(unittest.TestCase):
     def setUpClass(cls):
         cls.ev_loop: asyncio.BaseEventLoop = asyncio.get_event_loop()
         cls.data_source: BitfinexAPIOrderBookDataSource = BitfinexAPIOrderBookDataSource(
-            symbols=cls.trading_pairs
+            trading_pairs=cls.trading_pairs
         )
 
     def test_get_trading_pairs(self):

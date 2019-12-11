@@ -511,6 +511,7 @@ class BitfinexOrderBookMessage(OrderBookMessage):
         *args,
         **kwargs,
     ):
+        # print("content", content)
         if timestamp is None:
             if message_type is OrderBookMessageType.SNAPSHOT:
                 raise ValueError("timestamp must not be None when initializing snapshot messages.")
@@ -527,6 +528,7 @@ class BitfinexOrderBookMessage(OrderBookMessage):
 
     @property
     def trade_id(self) -> int:
+        # TODO: not shure that it's correct. see maybe it's right
         return self.content["trade_id"]
 
     @property

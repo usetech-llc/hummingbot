@@ -8,7 +8,7 @@ cdef class BitfinexMarket(MarketBase):
     cdef:
         object _ev_loop
         object _poll_notifier
-        public bool _user_stream_tracker
+        public object _user_stream_tracker
         public object _bitfinex_auth
         list trading_pairs
         public object _user_stream_tracker_task
