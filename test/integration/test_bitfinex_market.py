@@ -246,10 +246,24 @@ class BitfinexMarketUnitTest(unittest.TestCase):
         # Cancel order. Automatically asserts that order is tracked
         print("order_id: ", order_id)
         time.sleep(5)
+
         self.market.cancel(trading_pair, order_id)
+
+        print("")
+        print(
+            "------------------------------------------ ORDER CANCELATION STARTED ------------------------- ")
+        print("")
+
         [order_cancelled_event] = self.run_parallel(
             self.market_logger.wait_for(OrderCancelledEvent))
+
+        print("")
+        print(
+            "------------------------------------------ ORDER CANCELATION EVENT RECEIVED ------------------------- ")
+        print("")
+
         self.assertEqual(order_cancelled_event.order_id, order_id)
+
         '''
         [order_completed_event] = self.run_parallel(self.market_logger.wait_for(SellOrderCompletedEvent))
         order_completed_event: SellOrderCompletedEvent = order_completed_event
@@ -358,7 +372,7 @@ class BitfinexMarketUnitTest(unittest.TestCase):
     # @unittest.skip("temporary")
     def test_execute_limit_sell(self):
         trading_pair = "ETHUSD"
-        amount: Decimal = Decimal("0.04")
+        amount: Decimal = Decimal("0.08")
         quantized_amount: Decimal = self.market.quantize_order_amount(trading_pair,
                                                                       amount)
         # current_ask_price: Decimal = self.market.get_price(trading_pair, False)
@@ -387,15 +401,6 @@ class BitfinexMarketUnitTest(unittest.TestCase):
         # Wait for order creation event
         # self.run_parallel(self.market_logger.wait_for(BuyOrderCreatedEvent))
 
-        print("")
-        print(
-            "------------------------------------------ ORDER PLACED IN THE EXCHANGE ------------------------- ")
-        print("")
-
-        # Cancel order. Automatically asserts that order is tracked
-        # print("order_id: ", order_id)
-        # time.sleep(5)
-
         print("trading_pair, quantized_amount, OrderType.LIMIT, quantize_bid_price",
               trading_pair, quantized_amount, OrderType.LIMIT, quantize_ask_price)
         order_id = self.market.sell(trading_pair,
@@ -405,8 +410,20 @@ class BitfinexMarketUnitTest(unittest.TestCase):
                                     )
 
         self.run_parallel(self.market_logger.wait_for(SellOrderCreatedEvent))
+
+        print("")
+        print(
+            "------------------------------------------ ORDER PLACED IN THE EXCHANGE ------------------------- ")
+        print("")
+
         [order_completed_event] = self.run_parallel(
             self.market_logger.wait_for(SellOrderCompletedEvent))
+
+        print("")
+        print(
+            "------------------------------------------ ORDER COMPLETED ------------------------- ")
+        print("")
+
         order_completed_event: SellOrderCompletedEvent = order_completed_event
         trade_events: List[OrderFilledEvent] = [t for t in self.market_logger.event_log
                                                 if isinstance(t, OrderFilledEvent)]

@@ -713,7 +713,8 @@ cdef class BitfinexMarket(MarketBase):
                 print("----------------------------- DEBUG 3 ------------------------ ")
                 self.logger().info(f"Created {order_type} sell order {order_id} for {decimal_amount} {trading_pair}.")
                 print("----------------------------- DEBUG 4 ------------------------ ")
-                print("exchange_order_id->>", exchange_order_id)
+                print("exchange_order_id->>")
+                print(exchange_order_id)
                 tracked_order.update_exchange_order_id(exchange_order_id)
                 print("----------------------------- DEBUG 5 ------------------------ ")
 
@@ -971,6 +972,9 @@ cdef class BitfinexMarket(MarketBase):
                     if tracked_order.trade_type == TradeType.SELL:
                         self.logger().info(f"The market sell order {tracked_order.client_order_id} has completed "
                                            f"according to Coinbase Pro user stream.")
+                        print("")
+                        print("--------------------- TRIGGERING SellOrderCompletedEvent --------------------------")
+                        print("")
                         self.c_trigger_event(self.MARKET_SELL_ORDER_COMPLETED_EVENT_TAG,
                                              SellOrderCompletedEvent(self._current_timestamp,
                                                                      tracked_order.client_order_id,
