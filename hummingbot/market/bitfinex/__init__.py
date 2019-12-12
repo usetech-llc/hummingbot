@@ -1,7 +1,11 @@
+import re
+
 BITFINEX_REST_URL = "https://api-pub.bitfinex.com/v2"
 BITFINEX_REST_AUTH_URL = "https://api.bitfinex.com/v2"
 BITFINEX_WS_URI = "wss://api-pub.bitfinex.com/ws/2"
 BITFINEX_WS_AUTH_URI = "wss://api.bitfinex.com/ws/2"
+
+TRADING_PAIR_SPLITTER = re.compile(r"^(\w+)(BTC|ETH|BNB|XRP|USD|USDT|USDC|USDS|TUSD|PAX|TRX|BUSD|NGN)$")
 
 
 class SubmitOrder:
@@ -13,3 +17,11 @@ class SubmitOrder:
     @classmethod
     def parse(cls, order_snapshot):
         return cls(order_snapshot[cls.OID])
+
+
+class ContentEventType:
+    ORDER_UPDATE = "ou"
+    TRADE_UPDATE = "tu"
+    TRADE_EXECUTE = "te"
+    WALLET_SNAPSHOT = "ws"
+    WALLET_UPDATE = "wu"

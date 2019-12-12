@@ -276,7 +276,7 @@ class BitfinexMarketUnitTest(unittest.TestCase):
         # Reset the logs
         self.market_logger.clear()
 
-    # @unittest.skip("temporary")
+    @unittest.skip("temporary")
     def test_execute_limit_buy(self):
         trading_pair = "ETHUSD"
         amount: Decimal = Decimal("0.04")
@@ -355,7 +355,7 @@ class BitfinexMarketUnitTest(unittest.TestCase):
         # # Reset the logs
         # self.market_logger.clear()
 
-    @unittest.skip("temporary")
+    # @unittest.skip("temporary")
     def test_execute_limit_sell(self):
         trading_pair = "ETHUSD"
         amount: Decimal = Decimal("0.04")
@@ -371,7 +371,7 @@ class BitfinexMarketUnitTest(unittest.TestCase):
         # for b_entry in self.market.order_books[trading_pair].bid_entries():
         #     print(b_entry)
         most_top_ask = next(ask_entries)
-        ask_price: Decimal = Decimal(most_top_ask.price - 0.01)
+        ask_price: Decimal = Decimal(most_top_ask.price)
         quantize_ask_price: Decimal = \
             self.market.quantize_order_price(trading_pair, ask_price)
         print("most_top_ask", most_top_ask, quantize_ask_price, ask_price)
@@ -418,17 +418,17 @@ class BitfinexMarketUnitTest(unittest.TestCase):
         print(order_completed_event)
         print(order_id)
 
-        # self.assertTrue([evt.order_type == OrderType.LIMIT for evt in trade_events])
-        # self.assertEqual(order_id, order_completed_event.order_id)
-        # self.assertAlmostEqual(quantized_amount,
-        #                        order_completed_event.base_asset_amount)
-        # self.assertEqual("LTC", order_completed_event.base_asset)
-        # self.assertEqual("ETH", order_completed_event.quote_asset)
-        # self.assertAlmostEqual(base_amount_traded,
-        #                        order_completed_event.base_asset_amount)
-        # self.assertAlmostEqual(quote_amount_traded,
-        #                        order_completed_event.quote_asset_amount)
-        # self.assertTrue(any([isinstance(event, BuyOrderCreatedEvent) and event.order_id == order_id
-        #                      for event in self.market_logger.event_log]))
-        # # Reset the logs
-        # self.market_logger.clear()
+        self.assertTrue([evt.order_type == OrderType.LIMIT for evt in trade_events])
+        self.assertEqual(order_id, order_completed_event.order_id)
+        self.assertAlmostEqual(quantized_amount,
+                               order_completed_event.base_asset_amount)
+        self.assertEqual("LTC", order_completed_event.base_asset)
+        self.assertEqual("ETH", order_completed_event.quote_asset)
+        self.assertAlmostEqual(base_amount_traded,
+                               order_completed_event.base_asset_amount)
+        self.assertAlmostEqual(quote_amount_traded,
+                               order_completed_event.quote_asset_amount)
+        self.assertTrue(any([isinstance(event, BuyOrderCreatedEvent) and event.order_id == order_id
+                             for event in self.market_logger.event_log]))
+        # Reset the logs
+        self.market_logger.clear()

@@ -52,6 +52,8 @@ class BitfinexAPIUserStreamDataSource(UserStreamTrackerDataSource):
                     await asyncio.wait_for(ws.recv(), timeout=self.MESSAGE_TIMEOUT)  # auth
 
                     async for raw_msg in self._get_response(ws):
+                        if raw_msg[1] == "hb":
+                            continue
                         transformed_msg = self._transform_message_from_exchange(raw_msg)
                         output.put_nowait(transformed_msg)
 
