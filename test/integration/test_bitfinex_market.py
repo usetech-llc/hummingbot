@@ -316,7 +316,7 @@ class BitfinexMarketUnitTest(unittest.TestCase):
         # Cancel order. Automatically asserts that order is tracked
         # print("order_id: ", order_id)
         # time.sleep(5)
-        quantize_bid_price = quantize_bid_price - Decimal('0.05')
+        quantize_bid_price = quantize_bid_price
         print("trading_pair, quantized_amount, OrderType.LIMIT, quantize_bid_price",
               trading_pair, quantized_amount, OrderType.LIMIT, quantize_bid_price)
         order_id = self.market.buy(trading_pair,
