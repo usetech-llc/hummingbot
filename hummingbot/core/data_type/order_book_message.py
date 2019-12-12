@@ -534,3 +534,7 @@ class BitfinexOrderBookMessage(OrderBookMessage):
     @property
     def trading_pair(self) -> str:
         return self.content["symbol"]
+
+    @property
+    def type_hb(self):
+        return self.content[1] == "hb" if isinstance(self.content, list) else None

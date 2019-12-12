@@ -8,6 +8,7 @@ import ujson
 import websockets
 from websockets.exceptions import ConnectionClosed
 
+from hummingbot.core.data_type.order_book_message import BitfinexOrderBookMessage
 from hummingbot.core.data_type.user_stream_tracker_data_source import \
     UserStreamTrackerDataSource
 from hummingbot.logger import HummingbotLogger
@@ -52,9 +53,11 @@ class BitfinexAPIUserStreamDataSource(UserStreamTrackerDataSource):
                     await asyncio.wait_for(ws.recv(), timeout=self.MESSAGE_TIMEOUT)  # auth
 
                     async for raw_msg in self._get_response(ws):
-                        if raw_msg[1] == "hb":
+                        print("raw_msg", raw_msg, raw_msg[1])
+                        transformed_msg: BitfinexOrderBookMessage = self._transform_message_from_exchange(raw_msg)
+                        print("transformed_msg.type_hb", transformed_msg.content)
+                        if transformed_msg.type_hb:
                             continue
-                        transformed_msg = self._transform_message_from_exchange(raw_msg)
                         output.put_nowait(transformed_msg)
 
             except asyncio.CancelledError:
@@ -66,9 +69,9 @@ class BitfinexAPIUserStreamDataSource(UserStreamTrackerDataSource):
                 )
                 await asyncio.sleep(self.MESSAGE_TIMEOUT)
 
-    def _transform_message_from_exchange(self, raw_msg):
+    def _transform_message_from_exchange(self, raw_msg) -> BitfinexOrderBookMessage:
         msg = ujson.loads(raw_msg)
-        order_book_message: BitfinexOrderBook = BitfinexOrderBook.diff_message_from_exchange(msg, time.time())
+        order_book_message: BitfinexOrderBookMessage = BitfinexOrderBook.diff_message_from_exchange(msg, time.time())
         return order_book_message
 
     async def _get_response(self, ws: websockets.WebSocketClientProtocol):

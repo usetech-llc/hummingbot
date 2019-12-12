@@ -651,6 +651,7 @@ cdef class BitfinexMarket(MarketBase):
         """
         Delete an order from self._in_flight_orders mapping
         """
+        print("c_stop_tracking_order", order_id, self._in_flight_orders, order_id in self._in_flight_orders)
         if order_id in self._in_flight_orders:
             del self._in_flight_orders[order_id]
 
@@ -857,8 +858,10 @@ cdef class BitfinexMarket(MarketBase):
         # maker - i think it's indicator of sell or buy
         if _type in [ContentEventType.TRADE_EXECUTE, ContentEventType.TRADE_UPDATE]:
             data["order_id"] = content[3]
-            data["maker_order_id"] = content[3] if content[8] == 1 else None
-            data["taker_order_id"] = content[3] if content[8] == -1 else None
+            # if amount is negative it mean sell, if positive is's buy.
+            # zero no can, because minimal step is present. fot eth is 0.04
+            data["maker_order_id"] = content[3] if content[4] > 0 else None
+            data["taker_order_id"] = content[3] if content[4] < 0 else None
             data["price"] = content[5]
             data["amount"] = content[4]
 
@@ -969,6 +972,8 @@ cdef class BitfinexMarket(MarketBase):
                 # sell
                 if event_type in [ContentEventType.TRADE_EXECUTE] \
                         and content["taker_order_id"]:  # Only handles orders with "done" status
+                    print("tracked_order.trade_type", tracked_order.trade_type)
+
                     if tracked_order.trade_type == TradeType.SELL:
                         self.logger().info(f"The market sell order {tracked_order.client_order_id} has completed "
                                            f"according to Coinbase Pro user stream.")
@@ -987,6 +992,9 @@ cdef class BitfinexMarket(MarketBase):
                                                                      tracked_order.fee_paid,
                                                                      tracked_order.order_type))
                     self.c_stop_tracking_order(tracked_order.client_order_id)
+                    print("")
+                    print("--------------------- stop tracking --------------------------")
+                    print("")
                 #
                 # elif content.get("reason") == "canceled":  # reason == "canceled":
                 #     execute_amount_diff = 0
