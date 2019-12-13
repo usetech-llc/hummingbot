@@ -213,7 +213,6 @@ class BitfinexAPIOrderBookDataSource(OrderBookTrackerDataSource):
 
     async def get_snapshot(self, client: aiohttp.ClientSession, trading_pair: str) -> Dict[str, Any]:
         request_url: str = f"{BITFINEX_REST_URL}/book/t{trading_pair}/R0"
-        print(request_url)
 
         async with client.get(request_url) as response:
             response: aiohttp.ClientResponse = response
@@ -247,10 +246,6 @@ class BitfinexAPIOrderBookDataSource(OrderBookTrackerDataSource):
                         snapshot_timestamp,
                         metadata={"symbol": trading_pair}
                     )
-
-                    # print("---------------- debug 1 =========== snapshot_msg.bids")
-                    # print(snapshot)
-                    # print(snapshot_msg.bids)
 
                     order_book: OrderBook = self.order_book_create_function()
                     active_order_tracker: BitfinexActiveOrderTracker = BitfinexActiveOrderTracker()
@@ -398,7 +393,6 @@ class BitfinexAPIOrderBookDataSource(OrderBookTrackerDataSource):
                 # this is not a new order. Either update it or delete it
                 if price == 0:
                     self._untrack_order(order_id)
-                    # print("-------------- Deleted order %d" % (order_id))
                     return self._generate_delete_message(pair, order.price, side)
                 else:
                     self._track_order(order_id, OrderBookRow(price, abs(amount), order.update_id), side)
@@ -407,7 +401,6 @@ class BitfinexAPIOrderBookDataSource(OrderBookTrackerDataSource):
                 # this is a new order unless the price is 0, just track it and create message that
                 # will add it to the order book
                 if price != 0:
-                    # print("-------------- Add order %d" % (order_id))
                     return self._generate_add_message(pair, price, amount)
         return None
 
@@ -428,13 +421,7 @@ class BitfinexAPIOrderBookDataSource(OrderBookTrackerDataSource):
                     await asyncio.wait_for(ws.recv(), timeout=self.MESSAGE_TIMEOUT)  # snapshot
 
                     async for raw_msg in self._get_response(ws):
-                        # print("------------- debug 3 ============== raw update message:")
-                        # print(raw_msg)
                         msg = self._parse_raw_update(pair, raw_msg)
-
-                        # print("------------- debug 3 ============== update message:")
-                        # print(msg)
-
                         if msg is not None:
                             output.put_nowait(msg)
             except asyncio.CancelledError:

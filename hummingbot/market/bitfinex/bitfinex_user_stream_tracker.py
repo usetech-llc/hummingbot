@@ -8,7 +8,10 @@ from typing import (
 )
 from hummingbot.core.data_type.user_stream_tracker_data_source import UserStreamTrackerDataSource
 from hummingbot.logger import HummingbotLogger
-from hummingbot.core.data_type.user_stream_tracker import UserStreamTrackerDataSourceType, UserStreamTracker
+from hummingbot.core.data_type.user_stream_tracker import (
+    UserStreamTrackerDataSourceType,
+    UserStreamTracker,
+)
 from hummingbot.core.utils.async_utils import (
     safe_ensure_future,
     safe_gather,
