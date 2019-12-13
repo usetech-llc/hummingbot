@@ -381,7 +381,7 @@ cdef class BitfinexMarket(MarketBase):
                               headers,
                               data_str: Optional[str, list] = None) -> list:
         """
-        A wrapper for submitting API requests to Coinbase Pro
+        A wrapper for submitting API requests to Bitfinex
         :returns: json data from the endpoints
         """
 
@@ -415,7 +415,7 @@ cdef class BitfinexMarket(MarketBase):
         cdef:
             TradingRule trading_rule = self._trading_rules[trading_pair]
 
-        # Coinbase Pro is using the min_order_size as max_precision
+        # Bitfinex is using the min_order_size as max_precision
         # Order size must be a multiple of the min_order_size
         # print("self._trading_rules[trading_pair]", self._trading_rules, trading_pair)
         return trading_rule.min_order_size
@@ -778,7 +778,7 @@ cdef class BitfinexMarket(MarketBase):
             traceback.print_exc()
             if "order not found" in e.message:
                 # The order was never there to begin with. So cancelling it is a no-op but semantically successful.
-                self.logger().info(f"The order {order_id} does not exist on Coinbase Pro. No cancellation needed.")
+                self.logger().info(f"The order {order_id} does not exist on Bitfinex. No cancellation needed.")
                 self.c_stop_tracking_order(order_id)
                 self.c_trigger_event(self.MARKET_ORDER_CANCELLED_EVENT_TAG,
                                      OrderCancelledEvent(self._current_timestamp, order_id))
@@ -984,7 +984,7 @@ cdef class BitfinexMarket(MarketBase):
 
                         if tracked_order.trade_type == TradeType.SELL:
                             self.logger().info(f"The market sell order {tracked_order.client_order_id} has completed "
-                                               f"according to Coinbase Pro user stream.")
+                                               f"according to Bitfinex user stream.")
                             print("")
                             print("--------------------- TRIGGERING SellOrderCompletedEvent --------------------------")
                             print("")
