@@ -855,7 +855,6 @@ cdef class BitfinexMarket(MarketBase):
         # [0,       'te', [40xx, 'tETHUSD', 157613xxxx, 3566953xxx, 0.04, .....
         # .. EXEC_PRICE, ORDER_TYPE,      ORDER_PRICE  MAKER    FEE   FEE_CURRENCY
         # .. 142.88,    'EXCHANGE LIMIT', 142.88,      1,       None, None, 1576132037108]]
-        # maker - i think it's indicator of sell or buy
         if _type in [ContentEventType.TRADE_EXECUTE, ContentEventType.TRADE_UPDATE]:
             data["order_id"] = content[3]
             # if amount is negative it mean sell, if positive is's buy.
@@ -917,18 +916,27 @@ cdef class BitfinexMarket(MarketBase):
                 #     else:
                 #         self.logger().error(f"Invalid change message - '{content}'. Aborting.")
                 #
-                if event_type in [ContentEventType.TRADE_EXECUTE,
-                                  ContentEventType.TRADE_UPDATE]:
-                    remaining_size = Decimal(content["amount"])
-                    new_confirmed_amount = tracked_order.amount - remaining_size
-                    execute_amount_diff = new_confirmed_amount - tracked_order.executed_amount_base
-                    tracked_order.executed_amount_base = new_confirmed_amount
-                    tracked_order.executed_amount_quote += execute_amount_diff * execute_price
+                if event_type in [ContentEventType.TRADE_UPDATE]:
+                    remaining_size = Decimal(content["amount"]).quantize(Decimal('1e-8'))
+                    print("\n\n\n*******************************\n"
+                          "remaining_size", remaining_size)
+                    print("tracked_order.amount", tracked_order.amount)
+                    new_confirmed_amount = (abs(tracked_order.amount) - abs(remaining_size)).quantize(Decimal('1e-8'))
+                    print("new_confirmed_amount", new_confirmed_amount)
+                    print("tracked_order.executed_amount_base", tracked_order.executed_amount_base)
 
-                print("difference: execute_amount_diff ", execute_amount_diff)
+                    execute_amount_diff = new_confirmed_amount
+                    print("execute_amount_diff", execute_amount_diff)
+                    print("execute_price", execute_price)
+                    tracked_order.executed_amount_base += abs(remaining_size)
+                    tracked_order.executed_amount_quote += abs(remaining_size) * execute_price
+
+                print("tracked_order.executed_amount_quote", tracked_order.executed_amount_quote)
+                print("\n************************************\n")
                 #
-                if execute_amount_diff > s_decimal_0:
-                    self.logger().info(f"Filled {execute_amount_diff} out of {tracked_order.amount} of the "
+                if execute_amount_diff == s_decimal_0.quantize(Decimal('1e-8')) \
+                        and event_type in [ContentEventType.TRADE_UPDATE]:
+                    self.logger().info(f"!!!!!!!Filled {execute_amount_diff} out of {tracked_order.amount} of the "
                                        f"{order_type_description} order {tracked_order.client_order_id}")
                     self.c_trigger_event(self.MARKET_ORDER_FILLED_EVENT_TAG,
                                          OrderFilledEvent(
@@ -938,7 +946,7 @@ cdef class BitfinexMarket(MarketBase):
                                              tracked_order.trade_type,
                                              tracked_order.order_type,
                                              execute_price,
-                                             execute_amount_diff,
+                                             tracked_order.executed_amount_base,
                                              self.c_get_fee(
                                                  tracked_order.base_asset,
                                                  tracked_order.quote_asset,
@@ -949,53 +957,53 @@ cdef class BitfinexMarket(MarketBase):
                                              ),
                                              exchange_trade_id=tracked_order.exchange_order_id
                                          ))
-                # buy
-                if event_type in [ContentEventType.TRADE_EXECUTE] \
-                        and content["maker_order_id"]:  # Only handles orders with "done" status
-                    print("tracked_order.trade_type", tracked_order.trade_type)
+                    # buy
+                    if event_type in [ContentEventType.TRADE_UPDATE] \
+                            and content["maker_order_id"]:  # Only handles orders with "done" status
+                        print("tracked_order.trade_type", tracked_order.trade_type)
 
-                    if tracked_order.trade_type == TradeType.BUY:
-                        self.logger().info(f"The market buy order {tracked_order.client_order_id} has completed "
-                                           f"according to Bitfinex user stream.")
-                        self.c_trigger_event(self.MARKET_BUY_ORDER_COMPLETED_EVENT_TAG,
-                                             BuyOrderCompletedEvent(self._current_timestamp,
-                                                                    tracked_order.client_order_id,
-                                                                    tracked_order.base_asset,
-                                                                    tracked_order.quote_asset,
-                                                                    (tracked_order.fee_asset
-                                                                     or tracked_order.base_asset),
-                                                                    tracked_order.executed_amount_base,
-                                                                    tracked_order.executed_amount_quote,
-                                                                    tracked_order.fee_paid,
-                                                                    tracked_order.order_type))
-                    self.c_stop_tracking_order(tracked_order.client_order_id)
-                # sell
-                if event_type in [ContentEventType.TRADE_EXECUTE] \
-                        and content["taker_order_id"]:  # Only handles orders with "done" status
-                    print("tracked_order.trade_type", tracked_order.trade_type)
+                        if tracked_order.trade_type == TradeType.BUY:
+                            self.logger().info(f"The market buy order {tracked_order.client_order_id} has completed "
+                                               f"according to Bitfinex user stream.")
+                            self.c_trigger_event(self.MARKET_BUY_ORDER_COMPLETED_EVENT_TAG,
+                                                 BuyOrderCompletedEvent(self._current_timestamp,
+                                                                        tracked_order.client_order_id,
+                                                                        tracked_order.quote_asset,
+                                                                        tracked_order.base_asset,
+                                                                        (tracked_order.fee_asset
+                                                                         or tracked_order.base_asset),
+                                                                        tracked_order.executed_amount_base,
+                                                                        tracked_order.executed_amount_quote,
+                                                                        tracked_order.fee_paid,
+                                                                        tracked_order.order_type))
+                        self.c_stop_tracking_order(tracked_order.client_order_id)
+                    # sell
+                    if event_type in [ContentEventType.TRADE_UPDATE] \
+                            and content["taker_order_id"]:  # Only handles orders with "done" status
+                        print("tracked_order.trade_type", tracked_order.trade_type)
 
-                    if tracked_order.trade_type == TradeType.SELL:
-                        self.logger().info(f"The market sell order {tracked_order.client_order_id} has completed "
-                                           f"according to Coinbase Pro user stream.")
+                        if tracked_order.trade_type == TradeType.SELL:
+                            self.logger().info(f"The market sell order {tracked_order.client_order_id} has completed "
+                                               f"according to Coinbase Pro user stream.")
+                            print("")
+                            print("--------------------- TRIGGERING SellOrderCompletedEvent --------------------------")
+                            print("")
+                            self.c_trigger_event(self.MARKET_SELL_ORDER_COMPLETED_EVENT_TAG,
+                                                 SellOrderCompletedEvent(self._current_timestamp,
+                                                                         tracked_order.client_order_id,
+                                                                         tracked_order.base_asset,
+                                                                         tracked_order.quote_asset,
+                                                                         (tracked_order.fee_asset
+                                                                          or tracked_order.quote_asset),
+                                                                         tracked_order.executed_amount_base,
+                                                                         tracked_order.executed_amount_quote,
+                                                                         tracked_order.fee_paid,
+                                                                         tracked_order.order_type))
+                        self.c_stop_tracking_order(tracked_order.client_order_id)
                         print("")
-                        print("--------------------- TRIGGERING SellOrderCompletedEvent --------------------------")
+                        print("--------------------- stop tracking --------------------------")
                         print("")
-                        self.c_trigger_event(self.MARKET_SELL_ORDER_COMPLETED_EVENT_TAG,
-                                             SellOrderCompletedEvent(self._current_timestamp,
-                                                                     tracked_order.client_order_id,
-                                                                     tracked_order.base_asset,
-                                                                     tracked_order.quote_asset,
-                                                                     (tracked_order.fee_asset
-                                                                      or tracked_order.quote_asset),
-                                                                     tracked_order.executed_amount_base,
-                                                                     tracked_order.executed_amount_quote,
-                                                                     tracked_order.fee_paid,
-                                                                     tracked_order.order_type))
-                    self.c_stop_tracking_order(tracked_order.client_order_id)
-                    print("")
-                    print("--------------------- stop tracking --------------------------")
-                    print("")
-                #
+                    #
                 # elif content.get("reason") == "canceled":  # reason == "canceled":
                 #     execute_amount_diff = 0
                 #     tracked_order.last_state = "canceled"
