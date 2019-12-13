@@ -31,7 +31,11 @@ from hummingbot.logger import HummingbotLogger
 from hummingbot.market.bitfinex import (
     BITFINEX_REST_AUTH_URL,
     BITFINEX_REST_URL,
-    SubmitOrder, ContentEventType, TRADING_PAIR_SPLITTER)
+    SubmitOrder,
+    ContentEventType,
+    TRADING_PAIR_SPLITTER,
+    MIN_BASE_AMOUNT_INCREMENT,
+)
 from hummingbot.market.market_base import (
     MarketBase,
     OrderType,
@@ -47,8 +51,6 @@ from hummingbot.market.trading_rule cimport TradingRule
 
 s_logger = None
 s_decimal_0 = Decimal(0)
-general_min_order_size = Decimal('0.05')
-general_max_order_size = Decimal(1e9)
 general_order_size_quantum = Decimal(conf.bitfinex_quote_increment)
 
 Wallet = collections.namedtuple('Wallet',
@@ -418,7 +420,7 @@ cdef class BitfinexMarket(MarketBase):
         # Bitfinex is using the min_order_size as max_precision
         # Order size must be a multiple of the min_order_size
         # print("self._trading_rules[trading_pair]", self._trading_rules, trading_pair)
-        return trading_rule.min_order_size
+        return trading_rule.min_base_amount_increment
 
     cdef object c_quantize_order_amount(self, str trading_pair, object amount, object price=s_decimal_0):
         """
@@ -451,7 +453,7 @@ cdef class BitfinexMarket(MarketBase):
 
         print("trading_pair, amount::", trading_pair, amount)
         quantized_amount = MarketBase.c_quantize_order_amount(self, trading_pair, amount)
-
+        print("quantized_amount", quantized_amount)
         # Check against min_order_size. If not passing either check, return 0.
         if quantized_amount < trading_rule.min_order_size:
             return s_decimal_0
@@ -516,6 +518,8 @@ cdef class BitfinexMarket(MarketBase):
                     TradingRule(trading_pair_id,
                                 min_price_increment=Decimal(conf.bitfinex_quote_increment),
                                 min_order_size=Decimal(str(rule[1][3])),
+                                min_base_amount_increment=MIN_BASE_AMOUNT_INCREMENT,
+                                min_quote_amount_increment=MIN_BASE_AMOUNT_INCREMENT,
                                 max_order_size=Decimal(str(rule[1][4]))))
             except Exception:
                 self.logger().error(

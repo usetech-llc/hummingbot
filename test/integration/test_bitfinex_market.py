@@ -133,7 +133,7 @@ class BitfinexMarketUnitTest(unittest.TestCase):
         print(balance)
         self.assertGreater(balance, 0.04)
 
-    # @unittest.skip("temporary")
+    @unittest.skip("temporary")
     def test_limit_buy(self):
         trading_pair = "ETHUSD"
         amount: Decimal = Decimal("0.04")
@@ -212,7 +212,7 @@ class BitfinexMarketUnitTest(unittest.TestCase):
         # # Reset the logs
         self.market_logger.clear()
 
-    # @unittest.skip("temporary")
+    @unittest.skip("temporary")
     def test_limit_sell(self):
         '''
         Placing limit orders
@@ -295,15 +295,9 @@ class BitfinexMarketUnitTest(unittest.TestCase):
         amount: Decimal = Decimal("0.05")
         quantized_amount: Decimal = self.market.quantize_order_amount(trading_pair,
                                                                       amount)
-        # current_ask_price: Decimal = self.market.get_price(trading_pair, False)
-        # ask_price: Decimal = current_ask_price + Decimal("0.08") * current_ask_price
-        # quantize_bid_price: Decimal = \
-        #     self.market.quantize_order_price(trading_pair, ask_price)
 
-        # order_id = self.market.sell(trading_pair, amount, OrderType.LIMIT, quantize_ask_price)
         bid_entries = self.market.order_books[trading_pair].bid_entries()
-        # for b_entry in self.market.order_books[trading_pair].bid_entries():
-        #     print(b_entry)
+
         most_top_bid = next(bid_entries)
         print("most_top_bid", most_top_bid)
         bid_price: Decimal = Decimal(most_top_bid.price)
@@ -369,7 +363,7 @@ class BitfinexMarketUnitTest(unittest.TestCase):
         # Reset the logs
         self.market_logger.clear()
 
-    # @unittest.skip("temporary")
+    @unittest.skip("temporary")
     def test_execute_limit_sell(self):
         trading_pair = "ETHUSD"
         amount: Decimal = Decimal(0.04)
