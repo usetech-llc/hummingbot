@@ -648,6 +648,7 @@ cdef class BitfinexMarket(MarketBase):
                              f"{trading_rule.min_order_size}.")
 
         try:
+            # sell - is negative amount
             decimal_amount *= -1
             self.c_start_tracking_order(order_id, trading_pair, order_type, TradeType.SELL, decimal_price, decimal_amount)
             order_result = await self.place_order(order_id, trading_pair, decimal_amount, False, order_type, decimal_price)
@@ -787,6 +788,10 @@ cdef class BitfinexMarket(MarketBase):
             data["order_id"] = content[3]
             # if amount is negative it mean sell, if positive is's buy.
             # zero no can, because minimal step is present. fot eth is 0.04
+            # maker_order_id - this “makes” the marketplace; like products on
+            #   a store shelf - buy
+            # taker_order_id - “taker” consumes the book liquidity by ‘taking’
+            #   an order from the order book  - sell
             data["maker_order_id"] = content[3] if content[4] > 0 else None
             data["taker_order_id"] = content[3] if content[4] < 0 else None
             data["price"] = content[5]
@@ -804,6 +809,7 @@ cdef class BitfinexMarket(MarketBase):
                 if not content:
                     continue
                 event_type = content.get("type")
+                # str - because from exchange come int; order.exchange_order_id is str
                 exchange_order_ids = [str(content.get("order_id")),
                                       str(content.get("maker_order_id")),
                                       str(content.get("taker_order_id"))]
