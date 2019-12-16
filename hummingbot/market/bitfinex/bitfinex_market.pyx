@@ -755,11 +755,8 @@ cdef class BitfinexMarket(MarketBase):
                 await asyncio.sleep(1.0)
 
     def parse_message_content(self, oid, _type, content=None):
-        def _meta_of_params() -> Optional[dict]:
-            if len(content) > 6 and content[6]:
-                return content[6]
-            return None
-        if not content:
+        # listen only this events
+        if _type not in [ContentEventType.TRADE_UPDATE]:
             return
         data = {
             "type": _type,
@@ -771,20 +768,11 @@ cdef class BitfinexMarket(MarketBase):
             "reason": "",
         }
 
-        _meta = _meta_of_params()
-        if _type in [ContentEventType.WALLET_SNAPSHOT, ContentEventType.WALLET_UPDATE] and _meta:
-            # TODO: is it true that: maker_order_id == taker_order_id? Need clarify
-            data["order_id"] = _meta["order_id"]
-            data["maker_order_id"] = _meta["order_id_oppo"]
-            data["taker_order_id"] = _meta["order_id_oppo"]
-            data["price"] = _meta["trade_price"]
-            data["amount"] = _meta["trade_amount"]
-            data["reason"] = _meta["reason"]
         # [CHAN_ID, TYPE, [ID,    SYMBOL,  MTS_CREATE,  ORDER_ID,   EXEC_AMOUNT....
         # [0,       'te', [40xx, 'tETHUSD', 157613xxxx, 3566953xxx, 0.04, .....
         # .. EXEC_PRICE, ORDER_TYPE,      ORDER_PRICE  MAKER    FEE   FEE_CURRENCY
         # .. 142.88,    'EXCHANGE LIMIT', 142.88,      1,       None, None, 1576132037108]]
-        if _type in [ContentEventType.TRADE_EXECUTE, ContentEventType.TRADE_UPDATE]:
+        if _type == ContentEventType.TRADE_UPDATE:
             data["order_id"] = content[3]
             # if amount is negative it mean sell, if positive is's buy.
             # zero no can, because minimal step is present. fot eth is 0.04

@@ -29,3 +29,4 @@ class ContentEventType:
     TRADE_EXECUTE = "te"
     WALLET_SNAPSHOT = "ws"
     WALLET_UPDATE = "wu"
+    HEART_BEAT = "hb"

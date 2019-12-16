@@ -31,7 +31,11 @@ from hummingbot.core.data_type.order_book_message import (
 )
 from hummingbot.core.utils import async_ttl_cache
 from hummingbot.logger import HummingbotLogger
-from hummingbot.market.bitfinex import BITFINEX_REST_URL, BITFINEX_WS_URI
+from hummingbot.market.bitfinex import (
+    BITFINEX_REST_URL,
+    BITFINEX_WS_URI,
+    ContentEventType,
+)
 from hummingbot.market.bitfinex.bitfinex_active_order_tracker import BitfinexActiveOrderTracker
 from hummingbot.market.bitfinex.bitfinex_order_book import BitfinexOrderBook
 
@@ -278,8 +282,10 @@ class BitfinexAPIOrderBookDataSource(OrderBookTrackerDataSource):
 
         return result
 
-    def _prepare_trade(self, raw_response: str) -> Dict[str, Any]:
+    def _prepare_trade(self, raw_response: str) -> Optional[Dict[str, Any]]:
         *_, content = ujson.loads(raw_response)
+        if content == ContentEventType.HEART_BEAT:
+            return None
         try:
             trade = TradeStructure(*content)
         except Exception as err:
