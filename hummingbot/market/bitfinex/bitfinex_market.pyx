@@ -792,6 +792,8 @@ cdef class BitfinexMarket(MarketBase):
         Update order statuses from incoming messages from the user stream
         """
         async for event_message in self._iter_user_event_queue():
+            self.logger().info(f"event come from exchange: {event_message.content[:2]}")
+
             try:
                 content = self.parse_message_content(*event_message.content)
                 if not content:
