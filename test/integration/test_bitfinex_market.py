@@ -137,9 +137,9 @@ class BitfinexMarketUnitTest(unittest.TestCase):
         trading_pair = "ETHUSD"
         amount: Decimal = Decimal("0.04")
         current_ask_price: Decimal = self.market.get_price(trading_pair, False)
-        ask_price: Decimal = current_ask_price - Decimal("0.08") * current_ask_price
+        bid_price: Decimal = current_ask_price - Decimal("0.08") * current_ask_price
         quantize_ask_price: Decimal = self.market.quantize_order_price(trading_pair,
-                                                                       ask_price)
+                                                                       bid_price)
 
         order_id = self.market.buy(trading_pair, amount, OrderType.LIMIT,
                                    quantize_ask_price)

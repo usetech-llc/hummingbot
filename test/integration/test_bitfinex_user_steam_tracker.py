@@ -38,21 +38,18 @@ class BitfinexUserStreamTrackerUnitTest(unittest.TestCase):
         cls.trading_pairs = ["ETHUSD"]
         cls.user_stream_tracker: BitfinexUserStreamTracker = BitfinexUserStreamTracker(
             bitfinex_auth=cls.bitfinex_auth, trading_pairs=cls.trading_pairs)
-        # cls.user_stream_tracker_task: asyncio.Task = safe_ensure_future(
-        #     cls.user_stream_tracker.start())
 
         cls.clock: Clock = Clock(ClockMode.REALTIME)
         cls.market: BitfinexMarket = BitfinexMarket(
             conf.bitfinex_api_key,
             conf.bitfinex_secret_key,
-            trading_pairs=cls.trading_pairs
+            trading_pairs=["BTCUSD", "ETHUSD"]
         )
         print("Initializing Bitfinext market... this will take about a minute.")
         cls.clock.add_iterator(cls.market)
         cls.stack = contextlib.ExitStack()
         cls._clock = cls.stack.enter_context(cls.clock)
         cls.ev_loop.run_until_complete(cls.wait_til_ready())
-        print("Ready.")
 
     @classmethod
     async def _http_client(cls) -> aiohttp.ClientSession:
@@ -65,21 +62,6 @@ class BitfinexUserStreamTrackerUnitTest(unittest.TestCase):
 
     @classmethod
     async def wait_til_ready(cls):
-        # client = await cls._http_client()
-        # # response: StreamReader = None
-        # url="https://api-pub.bitfinex.com/v2/platform/status"
-        # import json
-        # async with client.request("get",
-        #                           url=url,
-        #                           timeout=10, data=json.dumps({}),
-        #                           ) as response:
-        #     data = await response.json()
-        #     print("DATA", data)
-        #     if response.status != 200:
-        #         raise IOError(
-        #             f"Error fetching data from {url}. HTTP status is {response.status}. {data}")
-        #     return data
-
         while True:
             now = time.time()
             next_iteration = now // 1.0 + 1
@@ -101,7 +83,7 @@ class BitfinexUserStreamTrackerUnitTest(unittest.TestCase):
     def run_parallel(self, *tasks):
         return self.ev_loop.run_until_complete(self.run_parallel_async(*tasks))
 
-    def test_limit_order_cancelled(self):
+    def test_balance_greater_than_zero(self):
         """
         This test should be run after the developer has implemented the limit buy and cancel
         in the corresponding market class
